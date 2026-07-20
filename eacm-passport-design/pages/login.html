@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E时代ACM令牌 · 登录</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cyber-bg: #111128;
+      --cyber-surface: rgba(25, 25, 50, 0.75);
+      --cyber-border: rgba(139, 92, 246, 0.2);
+      --cyber-primary: #8B5CF6;
+      --cyber-secondary: #06B6D4;
+      --cyber-accent: #F472B6;
+      --cyber-text: #E8E6F0;
+      --cyber-muted: rgba(232, 230, 240, 0.5);
+      --neon-purple: rgba(139, 92, 246, 0.6);
+      --neon-cyan: rgba(6, 182, 212, 0.5);
+      --neon-pink: rgba(244, 114, 182, 0.4);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+      background: var(--cyber-bg);
+      color: var(--cyber-text);
+      min-height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ===== Dynamic Flowing Gradient Background ===== */
+    .flow-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 120% 80% at 20% 30%, rgba(99, 102, 241, 0.35) 0%, transparent 60%),
+        radial-gradient(ellipse 100% 70% at 80% 70%, rgba(139, 92, 246, 0.30) 0%, transparent 55%),
+        radial-gradient(ellipse 80% 60% at 50% 10%, rgba(6, 182, 212, 0.20) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 50% at 70% 90%, rgba(244, 114, 182, 0.12) 0%, transparent 45%);
+      animation: flowShift 10s ease-in-out infinite alternate;
+    }
+
+    @keyframes flowShift {
+      0% {
+        transform: scale(1) rotate(0deg) translate(0, 0);
+        filter: hue-rotate(0deg);
+      }
+      33% {
+        transform: scale(1.05) rotate(1deg) translate(2%, -2%);
+        filter: hue-rotate(10deg);
+      }
+      66% {
+        transform: scale(0.98) rotate(-0.5deg) translate(-1%, 3%);
+        filter: hue-rotate(-5deg);
+      }
+      100% {
+        transform: scale(1.03) rotate(0.5deg) translate(-2%, -1%);
+        filter: hue-rotate(5deg);
+      }
+    }
+
+    /* ===== Second flowing layer — faster, different direction ===== */
+    .flow-bg-2 {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 10% 60%, rgba(139, 92, 246, 0.22) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 40% at 90% 20%, rgba(6, 182, 212, 0.18) 0%, transparent 50%),
+        radial-gradient(ellipse 40% 35% at 50% 80%, rgba(99, 102, 241, 0.15) 0%, transparent 45%),
+        radial-gradient(ellipse 45% 30% at 30% 10%, rgba(168, 85, 247, 0.12) 0%, transparent 40%);
+      animation: flowShift2 8s ease-in-out infinite alternate;
+    }
+
+    @keyframes flowShift2 {
+      0% {
+        transform: scale(1) translate(0, 0);
+        opacity: 0.8;
+      }
+      25% {
+        transform: scale(1.15) translate(-5%, 4%);
+        opacity: 1;
+      }
+      50% {
+        transform: scale(1.08) translate(3%, -3%);
+        opacity: 0.9;
+      }
+      75% {
+        transform: scale(1.12) translate(-2%, 5%);
+        opacity: 1;
+      }
+      100% {
+        transform: scale(1.05) translate(4%, -2%);
+        opacity: 0.85;
+      }
+    }
+
+    /* ===== Third layer — slow big blobs ===== */
+    .flow-bg-3 {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 60% 40%, rgba(139, 92, 246, 0.18) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 40% at 20% 80%, rgba(6, 182, 212, 0.12) 0%, transparent 50%);
+      animation: flowShift3 14s ease-in-out infinite alternate;
+    }
+
+    @keyframes flowShift3 {
+      0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+      50% { transform: translate(-60px, 30px) rotate(2deg) scale(1.1); }
+      100% { transform: translate(40px, -20px) rotate(-1deg) scale(1.05); }
+    }
+
+    /* ===== Cyber Grid Background ===== */
+    .cyber-grid {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background-image:
+        linear-gradient(rgba(139, 92, 246, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(139, 92, 246, 0.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+      animation: gridScroll 20s linear infinite;
+    }
+
+    @keyframes gridScroll {
+      0% { transform: translate(0, 0); }
+      100% { transform: translate(60px, 60px); }
+    }
+
+    /* ===== Scanline Overlay ===== */
+    .scanlines {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.02) 2px,
+        rgba(0, 0, 0, 0.02) 4px
+      );
+    }
+
+    /* ===== Left Brand Panel ===== */
+    .brand-panel {
+      flex: 0 0 45%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+      padding: 48px;
+      overflow: hidden;
+    }
+
+    /* Glitch Logo Effect */
+    .glitch-logo {
+      position: relative;
+      display: inline-block;
+    }
+
+    .glitch-logo .e-letter {
+      font-family: 'Orbitron', monospace;
+      font-size: 72px;
+      font-weight: 900;
+      color: #8B5CF6;
+      text-shadow:
+        0 0 20px rgba(139, 92, 246, 0.6),
+        0 0 60px rgba(139, 92, 246, 0.3),
+        0 0 100px rgba(139, 92, 246, 0.1);
+      position: relative;
+      line-height: 1;
+    }
+
+    .glitch-logo::before,
+    .glitch-logo::after {
+      content: attr(data-text);
+      font-family: 'Orbitron', monospace;
+      font-size: 72px;
+      font-weight: 900;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      line-height: 1;
+    }
+
+    .glitch-logo::before {
+      color: #06B6D4;
+      z-index: -1;
+      animation: glitch1 3s infinite;
+    }
+
+    .glitch-logo::after {
+      color: #F472B6;
+      z-index: -2;
+      animation: glitch2 3s infinite;
+    }
+
+    @keyframes glitch1 {
+      0%, 92% { transform: translate(0); clip-path: inset(0 0 0 0); }
+      93% { transform: translate(-3px, 1px); clip-path: inset(20% 0 60% 0); }
+      94% { transform: translate(2px, -1px); clip-path: inset(50% 0 20% 0); }
+      95% { transform: translate(0); clip-path: inset(0 0 0 0); }
+      97% { transform: translate(3px, 2px); clip-path: inset(10% 0 70% 0); }
+      98% { transform: translate(-1px, -2px); clip-path: inset(60% 0 10% 0); }
+      100% { transform: translate(0); clip-path: inset(0 0 0 0); }
+    }
+
+    @keyframes glitch2 {
+      0%, 90% { transform: translate(0); clip-path: inset(0 0 0 0); }
+      91% { transform: translate(3px, -1px); clip-path: inset(40% 0 30% 0); }
+      92% { transform: translate(-2px, 2px); clip-path: inset(10% 0 70% 0); }
+      93% { transform: translate(0); clip-path: inset(0 0 0 0); }
+      96% { transform: translate(-3px, 1px); clip-path: inset(70% 0 10% 0); }
+      97% { transform: translate(2px, -2px); clip-path: inset(30% 0 40% 0); }
+      100% { transform: translate(0); clip-path: inset(0 0 0 0); }
+    }
+
+    .brand-title {
+      font-family: 'Orbitron', 'Noto Sans SC', monospace;
+      font-size: 28px;
+      font-weight: 700;
+      margin-top: 16px;
+      letter-spacing: 2px;
+      background: linear-gradient(135deg, #8B5CF6, #06B6D4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .brand-subtitle {
+      font-size: 14px;
+      color: var(--cyber-muted);
+      margin-top: 12px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      font-weight: 300;
+    }
+
+    .brand-tagline {
+      font-family: 'Orbitron', monospace;
+      font-size: 11px;
+      color: rgba(6, 182, 212, 0.5);
+      margin-top: 32px;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+    }
+
+    /* Neon decorative line */
+    .neon-line {
+      width: 120px;
+      height: 1px;
+      margin-top: 24px;
+      position: relative;
+      overflow: visible;
+    }
+
+    .neon-line::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, #8B5CF6, #06B6D4, transparent);
+      box-shadow: 0 0 8px rgba(139, 92, 246, 0.4);
+    }
+
+    .neon-line::after {
+      content: '';
+      position: absolute;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #06B6D4;
+      top: -2.5px;
+      left: 50%;
+      box-shadow: 0 0 10px rgba(6, 182, 212, 0.6);
+      animation: neonDotPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes neonDotPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.7); }
+    }
+
+    /* ===== Right Login Panel ===== */
+    .login-panel {
+      flex: 0 0 55%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+      padding: 48px;
+    }
+
+    .login-panel::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 10%;
+      bottom: 10%;
+      width: 1px;
+      background: linear-gradient(180deg, transparent, var(--cyber-border), rgba(6, 182, 212, 0.2), var(--cyber-border), transparent);
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 400px;
+      position: relative;
+    }
+
+    .login-card .card-header {
+      margin-bottom: 36px;
+    }
+
+    .login-card .card-header h2 {
+      font-family: 'Orbitron', 'Noto Sans SC', monospace;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--cyber-text);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .login-card .card-header p {
+      font-size: 13px;
+      color: var(--cyber-muted);
+      margin-top: 8px;
+    }
+
+    /* ===== Login Buttons ===== */
+    .login-btn {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      padding: 14px 20px;
+      border-radius: 10px;
+      border: 1px solid var(--cyber-border);
+      background: var(--cyber-surface);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      text-decoration: none;
+      color: var(--cyber-text);
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+
+    .login-btn::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.08), rgba(6, 182, 212, 0.05));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .login-btn:hover {
+      border-color: rgba(139, 92, 246, 0.35);
+      box-shadow:
+        0 0 20px rgba(139, 92, 246, 0.1),
+        0 0 40px rgba(139, 92, 246, 0.05),
+        inset 0 0 20px rgba(139, 92, 246, 0.03);
+      transform: translateY(-1px);
+    }
+
+    .login-btn:hover::before {
+      opacity: 1;
+    }
+
+    .login-btn:active {
+      transform: translateY(0);
+      box-shadow: 0 0 10px rgba(139, 92, 246, 0.15);
+    }
+
+    .login-btn .btn-icon {
+      position: relative;
+      z-index: 1;
+    }
+
+    .login-btn .btn-label {
+      flex: 1;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 500;
+      position: relative;
+      z-index: 1;
+    }
+
+    .login-btn .btn-arrow {
+      opacity: 0.3;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      position: relative;
+      z-index: 1;
+    }
+
+    .login-btn:hover .btn-arrow {
+      opacity: 0.7;
+      transform: translateX(2px);
+    }
+
+    /* ===== Divider ===== */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin: 28px 0 24px;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--cyber-border), transparent);
+    }
+
+    .divider span {
+      font-family: 'Orbitron', monospace;
+      font-size: 11px;
+      color: var(--cyber-muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    /* ===== Footer ===== */
+    .footer-area {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      padding: 16px;
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      font-size: 11px;
+      color: rgba(226, 224, 235, 0.25);
+    }
+
+    .footer-area a {
+      color: rgba(226, 224, 235, 0.35);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    .footer-area a:hover {
+      color: rgba(139, 92, 246, 0.6);
+    }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 768px) {
+      body { flex-direction: column; overflow: auto; }
+      .brand-panel {
+        flex: none;
+        padding: 40px 24px 32px;
+      }
+      .glitch-logo .e-letter,
+      .glitch-logo::before,
+      .glitch-logo::after {
+        font-size: 48px;
+      }
+      .brand-title { font-size: 20px; }
+      .brand-subtitle { font-size: 12px; letter-spacing: 2px; }
+      .brand-tagline { display: none; }
+      .login-panel {
+        flex: none;
+        padding: 24px;
+      }
+      .login-panel::before { display: none; }
+      .footer-area { position: relative; margin-top: 32px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Background Effects -->
+  <div class="flow-bg"></div>
+  <div class="flow-bg-2"></div>
+  <div class="flow-bg-3"></div>
+  <div class="cyber-grid"></div>
+  <div class="scanlines"></div>
+
+  <!-- Left Brand Panel -->
+  <div class="brand-panel">
+    <div class="text-center">
+      <div class="glitch-logo" data-text="E">
+        <span class="e-letter">E</span>
+      </div>
+      <div class="brand-title">E时代ACM令牌</div>
+      <div class="brand-subtitle">统一身份认证 · 一键通行</div>
+      <div class="neon-line"></div>
+      <div class="brand-tagline">Unified Authentication</div>
+    </div>
+  </div>
+
+  <!-- Right Login Panel -->
+  <div class="login-panel">
+    <div class="login-card">
+      <div class="card-header">
+        <h2>登录 / 注册</h2>
+        <p>选择第三方账号快速登录</p>
+      </div>
+
+      <!-- Login Buttons -->
+      <div>
+        <!-- WeChat Login -->
+        <a href="#" class="login-btn">
+          <span class="btn-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M9.5 4C5.36 4 2 6.69 2 10C2 11.89 3.08 13.56 4.78 14.66L4 17L6.81 15.5C7.64 15.82 8.55 16 9.5 16C9.67 16 9.83 15.99 10 15.97C9.69 15.37 9.5 14.71 9.5 14C9.5 11.01 12.14 8.5 15.5 8.5C15.67 8.5 15.83 8.51 16 8.53C15.22 5.95 12.63 4 9.5 4ZM7 9C6.45 9 6 8.55 6 8C6 7.45 6.45 7 7 7C7.55 7 8 7.45 8 8C8 8.55 7.55 9 7 9ZM12 9C11.45 9 11 8.55 11 8C11 7.45 11.45 7 12 7C12.55 7 13 7.45 13 8C13 8.55 12.55 9 12 9Z" fill="#07C160"/>
+              <path d="M22 14C22 11.24 19.54 9 16.5 9C13.46 9 11 11.24 11 14C11 16.76 13.46 19 16.5 19C17.28 19 18.03 18.87 18.71 18.63L21 19.8L20.35 17.85C21.39 17.02 22 15.58 22 14ZM14.5 13.5C14.22 13.5 14 13.28 14 13C14 12.72 14.22 12.5 14.5 12.5C14.78 12.5 15 12.72 15 13C15 13.28 14.78 13.5 14.5 13.5ZM18.5 13.5C18.22 13.5 18 13.28 18 13C18 12.72 18.22 12.5 18.5 12.5C18.78 12.5 19 12.72 19 13C19 13.28 18.78 13.5 18.5 13.5Z" fill="#07C160"/>
+            </svg>
+          </span>
+          <span class="btn-label">微信登录</span>
+          <span class="btn-arrow">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M6 4L10.5 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </a>
+
+        <!-- QQ Login -->
+        <a href="#" class="login-btn">
+          <span class="btn-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2C8.13 2 5 5.13 5 9V15C5 18.87 8.13 22 12 22C15.87 22 19 18.87 19 15V9C19 5.13 15.87 2 12 2ZM12 4C14.76 4 17 6.24 17 9V10.26C16.4 9.94 15.72 9.76 15 9.76C13.5 9.76 12.18 10.5 11.39 11.63C10.93 10.96 10.28 10.42 9.5 10.1V9C9.5 6.24 9.24 4 12 4Z" fill="#1296DB"/>
+              <ellipse cx="9.5" cy="9.5" rx="1.5" ry="2" fill="#1296DB"/>
+              <ellipse cx="14.5" cy="9.5" rx="1.5" ry="2" fill="#1296DB"/>
+              <path d="M8.5 13.5C8.5 13.5 9 16 12 16C15 16 15.5 13.5 15.5 13.5" stroke="#1296DB" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="btn-label">QQ登录</span>
+          <span class="btn-arrow">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M6 4L10.5 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </a>
+
+        <!-- GitHub Login -->
+        <a href="#" class="login-btn">
+          <span class="btn-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2C6.477 2 2 6.477 2 12C2 16.42 4.865 20.17 8.839 21.49C9.339 21.58 9.5 21.27 9.5 21V19.31C6.655 19.91 6.07 17.97 6.07 17.97C5.61 16.81 4.97 16.5 4.97 16.5C4.09 15.88 5.04 15.89 5.04 15.89C6.01 15.96 6.54 16.89 6.54 16.89C7.41 18.37 8.82 17.93 9.54 17.62C9.65 16.97 9.96 16.53 10.3 16.23C8.03 15.93 5.64 15.06 5.64 11.37C5.64 10.23 6.04 9.3 6.69 8.57C6.57 8.27 6.22 7.2 6.77 5.77C6.77 5.77 7.64 5.49 9.5 6.82C10.3 6.55 11.15 6.42 12 6.41C12.85 6.42 13.7 6.55 14.5 6.82C16.36 5.49 17.23 5.77 17.23 5.77C17.78 7.2 17.43 8.27 17.31 8.57C17.96 9.3 18.36 10.23 18.36 11.37C18.36 15.07 15.97 15.93 13.69 16.22C14.1 16.58 14.5 17.3 14.5 18.38V21C14.5 21.27 14.66 21.59 15.17 21.49C19.14 20.17 22 16.42 22 12C22 6.477 17.523 2 12 2Z" fill="#C9D1D9"/>
+            </svg>
+          </span>
+          <span class="btn-label">GitHub登录</span>
+          <span class="btn-arrow">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M6 4L10.5 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </a>
+      </div>
+
+      <!-- Divider -->
+      <div class="divider">
+        <span>Security</span>
+      </div>
+
+      <!-- Agreement -->
+      <p class="text-center text-xs" style="color: var(--cyber-muted); line-height: 1.8;">
+        登录即表示同意
+        <a href="#" style="color: var(--cyber-primary); text-decoration: none; border-bottom: 1px solid rgba(139,92,246,0.3);">《用户协议》</a>
+        和
+        <a href="#" style="color: var(--cyber-primary); text-decoration: none; border-bottom: 1px solid rgba(139,92,246,0.3);">《隐私政策》</a>
+      </p>
+
+      <!-- Note -->
+      <p class="text-center text-xs mt-3" style="color: rgba(6, 182, 212, 0.4); font-family: 'Orbitron', monospace; font-size: 10px; letter-spacing: 1px;">
+        SECURE AUTH · NO PHONE REQUIRED
+      </p>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer-area">
+    <span>&copy; 2026 E时代ACM令牌</span>
+    <a href="#">关于我们</a>
+    <a href="#">帮助中心</a>
+    <a href="#">更新日志</a>
+  </div>
+
+</body>
+</html>

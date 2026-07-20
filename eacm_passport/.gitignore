@@ -1,0 +1,33 @@
+# 环境变量（含 SECRET_KEY 等敏感信息）
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 虚拟环境
+venv/
+
+# 数据库
+*.sqlite3
+*.db
+
+# Django
+*.log
+staticfiles/
+media/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

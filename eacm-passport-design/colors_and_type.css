@@ -1,0 +1,23 @@
+:root {
+  --eacm-background: #F8F7F4;
+  --eacm-foreground: #1C1917;
+  --eacm-card: #FFFFFF;
+  --eacm-card-foreground: #1C1917;
+  --eacm-popover: #FFFFFF;
+  --eacm-popover-foreground: #1C1917;
+  --eacm-primary: #0F766E;
+  --eacm-primary-foreground: #FFFFFF;
+  --eacm-muted: #F1F0ED;
+  --eacm-muted-foreground: #78716C;
+  --eacm-border: #E7E5E4;
+  --eacm-input: #E7E5E4;
+  --eacm-ring: #0F766E;
+  --eacm-radius-sm: 6px;
+  --eacm-radius-md: 10px;
+  --eacm-radius-lg: 16px;
+  --eacm-destructive: #DC2626;
+  --eacm-success: #16A34A;
+  --eacm-wechat: #07C160;
+  --eacm-qq: #1296DB;
+  --eacm-github: #24292F;
+}

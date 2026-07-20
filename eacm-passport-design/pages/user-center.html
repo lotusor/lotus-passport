@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户中心 - E时代ACM令牌</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cyber-bg: #111128;
+      --cyber-surface: rgba(25, 25, 50, 0.75);
+      --cyber-border: rgba(139, 92, 246, 0.2);
+      --cyber-primary: #8B5CF6;
+      --cyber-secondary: #06B6D4;
+      --cyber-accent: #F472B6;
+      --cyber-text: #E8E6F0;
+      --cyber-muted: rgba(232, 230, 240, 0.5);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+      background: var(--cyber-bg);
+      color: var(--cyber-text);
+      min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* ===== Dynamic Flowing Gradient Background ===== */
+    .flow-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 120% 80% at 20% 30%, rgba(99, 102, 241, 0.35) 0%, transparent 60%),
+        radial-gradient(ellipse 100% 70% at 80% 70%, rgba(139, 92, 246, 0.30) 0%, transparent 55%),
+        radial-gradient(ellipse 80% 60% at 50% 10%, rgba(6, 182, 212, 0.20) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 50% at 70% 90%, rgba(244, 114, 182, 0.12) 0%, transparent 45%);
+      animation: flowShift 10s ease-in-out infinite alternate;
+    }
+
+    @keyframes flowShift {
+      0% { transform: scale(1) rotate(0deg) translate(0, 0); filter: hue-rotate(0deg); }
+      33% { transform: scale(1.05) rotate(1deg) translate(2%, -2%); filter: hue-rotate(10deg); }
+      66% { transform: scale(0.98) rotate(-0.5deg) translate(-1%, 3%); filter: hue-rotate(-5deg); }
+      100% { transform: scale(1.03) rotate(0.5deg) translate(-2%, -1%); filter: hue-rotate(5deg); }
+    }
+
+    .flow-bg-2 {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 10% 60%, rgba(139, 92, 246, 0.22) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 40% at 90% 20%, rgba(6, 182, 212, 0.18) 0%, transparent 50%),
+        radial-gradient(ellipse 40% 35% at 50% 80%, rgba(99, 102, 241, 0.15) 0%, transparent 45%),
+        radial-gradient(ellipse 45% 30% at 30% 10%, rgba(168, 85, 247, 0.12) 0%, transparent 40%);
+      animation: flowShift2 8s ease-in-out infinite alternate;
+    }
+
+    @keyframes flowShift2 {
+      0% { transform: scale(1) translate(0, 0); opacity: 0.8; }
+      25% { transform: scale(1.15) translate(-5%, 4%); opacity: 1; }
+      50% { transform: scale(1.08) translate(3%, -3%); opacity: 0.9; }
+      75% { transform: scale(1.12) translate(-2%, 5%); opacity: 1; }
+      100% { transform: scale(1.05) translate(4%, -2%); opacity: 0.85; }
+    }
+
+    .flow-bg-3 {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 60% 40%, rgba(139, 92, 246, 0.18) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 40% at 20% 80%, rgba(6, 182, 212, 0.12) 0%, transparent 50%);
+      animation: flowShift3 14s ease-in-out infinite alternate;
+    }
+
+    @keyframes flowShift3 {
+      0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+      50% { transform: translate(-60px, 30px) rotate(2deg) scale(1.1); }
+      100% { transform: translate(40px, -20px) rotate(-1deg) scale(1.05); }
+    }
+
+    /* ===== Cyber Grid ===== */
+    .cyber-grid {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background-image:
+        linear-gradient(rgba(139, 92, 246, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(139, 92, 246, 0.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+      animation: gridScroll 20s linear infinite;
+      pointer-events: none;
+    }
+    @keyframes gridScroll {
+      0% { transform: translate(0, 0); }
+      100% { transform: translate(60px, 60px); }
+    }
+
+    /* ===== Scanlines ===== */
+    .scanlines {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      pointer-events: none;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.02) 2px, rgba(0,0,0,0.02) 4px);
+    }
+
+    /* ===== Glass Nav ===== */
+    .cyber-nav {
+      background: rgba(10, 10, 15, 0.75);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      border-bottom: 1px solid var(--cyber-border);
+      position: sticky;
+      top: 0;
+      z-index: 30;
+    }
+
+    /* ===== Glass Card ===== */
+    .cyber-card {
+      background: rgba(15, 15, 25, 0.75);
+      backdrop-filter: blur(24px) saturate(1.4);
+      -webkit-backdrop-filter: blur(24px) saturate(1.4);
+      border: 1px solid var(--cyber-border);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cyber-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.3), rgba(6, 182, 212, 0.2), transparent);
+    }
+
+    /* ===== Avatar Glow ===== */
+    .avatar-glow {
+      background: linear-gradient(135deg, #8B5CF6, #06B6D4);
+      box-shadow: 0 0 30px rgba(139, 92, 246, 0.3), 0 0 60px rgba(139, 92, 246, 0.1);
+    }
+
+    .avatar-nav {
+      background: rgba(139, 92, 246, 0.2);
+      color: #8B5CF6;
+      border: 1px solid rgba(139, 92, 246, 0.3);
+    }
+
+    /* ===== Section Headers ===== */
+    .section-title {
+      font-family: 'Orbitron', 'Noto Sans SC', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--cyber-text);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+
+    /* ===== Account Row ===== */
+    .account-row {
+      transition: background 0.2s ease;
+      border-radius: 10px;
+    }
+    .account-row:hover {
+      background: rgba(139, 92, 246, 0.05);
+    }
+
+    /* ===== Action Links ===== */
+    .action-link {
+      transition: all 0.2s ease;
+      border-radius: 8px;
+    }
+    .action-link:hover {
+      background: rgba(139, 92, 246, 0.06);
+    }
+    .action-link:hover .arrow-icon {
+      transform: translateX(3px);
+      opacity: 0.6;
+    }
+
+    /* ===== Buttons ===== */
+    .btn-neon {
+      color: var(--cyber-muted);
+      transition: color 0.2s ease, text-shadow 0.2s ease;
+    }
+    .btn-neon:hover {
+      color: #F87171;
+      text-shadow: 0 0 8px rgba(248, 113, 113, 0.3);
+    }
+
+    .btn-cyber-primary {
+      color: var(--cyber-primary);
+      background: rgba(139, 92, 246, 0.1);
+      border: 1px solid rgba(139, 92, 246, 0.2);
+      transition: all 0.2s ease;
+    }
+    .btn-cyber-primary:hover {
+      background: rgba(139, 92, 246, 0.2);
+      box-shadow: 0 0 15px rgba(139, 92, 246, 0.15);
+    }
+
+    .btn-ghost {
+      color: var(--cyber-muted);
+      transition: all 0.2s ease;
+    }
+    .btn-ghost:hover {
+      color: var(--cyber-text);
+    }
+
+    /* ===== Inputs ===== */
+    .cyber-input {
+      background: rgba(139, 92, 246, 0.05);
+      border: 1px solid var(--cyber-border);
+      color: var(--cyber-text);
+      transition: all 0.2s ease;
+    }
+    .cyber-input:focus {
+      outline: none;
+      border-color: rgba(139, 92, 246, 0.4);
+      box-shadow: 0 0 15px rgba(139, 92, 246, 0.1);
+    }
+
+    /* ===== Status Dot ===== */
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22C55E;
+      box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+      animation: statusPulse 2s ease-in-out infinite;
+    }
+    .status-dot.inactive {
+      background: rgba(226, 224, 235, 0.2);
+      box-shadow: none;
+      animation: none;
+    }
+    @keyframes statusPulse {
+      0%, 100% { box-shadow: 0 0 8px rgba(34, 197, 94, 0.5); }
+      50% { box-shadow: 0 0 15px rgba(34, 197, 94, 0.8); }
+    }
+
+    /* ===== Icon Boxes ===== */
+    .icon-box {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      border: 1px solid transparent;
+    }
+    .icon-box-sm {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+    }
+
+    /* ===== Edit Button ===== */
+    .edit-btn {
+      color: var(--cyber-muted);
+      transition: all 0.2s ease;
+    }
+    .edit-btn:hover {
+      color: var(--cyber-primary);
+      text-shadow: 0 0 8px rgba(139, 92, 246, 0.3);
+    }
+
+    /* ===== Divider ===== */
+    .cyber-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--cyber-border), transparent);
+    }
+
+    /* ===== Footer Text ===== */
+    .footer-note {
+      font-family: 'Orbitron', monospace;
+      font-size: 10px;
+      color: rgba(6, 182, 212, 0.4);
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Background Effects -->
+  <div class="flow-bg"></div>
+  <div class="flow-bg-2"></div>
+  <div class="flow-bg-3"></div>
+  <div class="cyber-grid"></div>
+  <div class="scanlines"></div>
+
+  <!-- Top Navigation Bar -->
+  <nav class="cyber-nav">
+    <div class="max-w-3xl mx-auto px-6 h-14 flex items-center justify-between relative" style="z-index:1;">
+      <!-- Logo -->
+      <a href="#" class="flex items-center gap-2.5 group">
+        <div style="width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#8B5CF6,#6366F1);display:flex;align-items:center;justify-content:center;box-shadow:0 0 15px rgba(139,92,246,0.3);">
+          <span style="font-family:'Orbitron',monospace;font-size:16px;font-weight:900;color:#FFFFFF;line-height:1;">E</span>
+        </div>
+        <span style="font-family:'Orbitron','Noto Sans SC',monospace;font-size:13px;font-weight:600;letter-spacing:1px;color:var(--cyber-text);">E时代ACM令牌</span>
+      </a>
+
+      <!-- Right: Avatar + Logout -->
+      <div class="flex items-center gap-3">
+        <div class="avatar-nav w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold">
+          张
+        </div>
+        <button onclick="handleLogout()" class="btn-neon text-sm px-2 py-1 rounded-lg">
+          退出登录
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-3xl w-full mx-auto px-6 py-8 space-y-5 relative" style="z-index:1;">
+
+    <!-- ==================== User Profile Card ==================== -->
+    <div class="cyber-card">
+      <div class="px-6 pt-8 pb-6">
+        <!-- Avatar + Name + ID -->
+        <div class="flex items-start gap-5">
+          <!-- Avatar -->
+          <div class="flex-shrink-0">
+            <div id="avatar-container" class="relative group cursor-pointer" onclick="document.getElementById('avatar-upload').click()">
+              <!-- 实际头像（默认隐藏，有URL时显示） -->
+              <img id="avatar-img" class="avatar-glow w-20 h-20 rounded-full object-cover hidden" alt="头像" />
+              <!-- 字母头像（默认显示） -->
+              <div id="avatar-letter" class="avatar-glow w-20 h-20 rounded-full flex items-center justify-center text-3xl font-bold text-white">
+                张
+              </div>
+              <!-- 悬停遮罩 -->
+              <div class="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+              </div>
+            </div>
+            <input type="file" id="avatar-upload" accept="image/*" class="hidden" onchange="handleAvatarUpload(event)" />
+          </div>
+          <!-- Info -->
+          <div class="flex-1 min-w-0 pt-1">
+            <div class="flex items-center gap-2">
+              <h1 class="text-2xl font-bold" style="color: var(--cyber-text);" id="user-nickname">张三</h1>
+              <!-- Edit nickname button -->
+              <button onclick="toggleNicknameEdit()" class="edit-btn p-1 rounded-lg" title="修改昵称">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                </svg>
+              </button>
+            </div>
+            <!-- Nickname edit (hidden by default) -->
+            <div id="nickname-edit" class="hidden mt-2 flex items-center gap-2">
+              <input
+                id="nickname-input"
+                type="text"
+                value="张三"
+                maxlength="20"
+                class="cyber-input flex-1 max-w-xs rounded-lg px-3 py-1.5 text-sm"
+              />
+              <button onclick="saveNickname()" class="btn-cyber-primary text-xs font-medium px-3 py-1.5 rounded-lg">
+                保存
+              </button>
+              <button onclick="cancelNicknameEdit()" class="btn-ghost text-xs px-2 py-1.5 rounded-lg">
+                取消
+              </button>
+            </div>
+            <p class="text-sm mt-1" style="color: var(--cyber-muted); font-family: 'Orbitron', monospace; font-size: 12px; letter-spacing: 1px;">ID: 10086</p>
+
+            <!-- Status Badges -->
+            <div class="flex flex-wrap items-center gap-2 mt-3">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== Third-party Accounts Card ==================== -->
+    <div class="cyber-card">
+      <div class="px-6 py-5">
+        <h2 class="section-title mb-4 flex items-center gap-2">
+          <svg class="w-4 h-4" style="color: var(--cyber-primary);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+          </svg>
+          已绑定第三方账号
+        </h2>
+
+        <!-- WeChat Row (Bound) -->
+        <div class="account-row flex items-center py-3.5 px-2">
+          <div class="flex items-center gap-3 flex-1 min-w-0">
+            <div class="icon-box" style="background:rgba(7,193,96,0.08);border-color:rgba(7,193,96,0.15);">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="#07C160">
+                <path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 01.213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 00.167-.054l1.903-1.114a.864.864 0 01.717-.098 10.16 10.16 0 002.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.596-6.348zM5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 01-1.162 1.178A1.17 1.17 0 014.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 01-1.162 1.178 1.17 1.17 0 01-1.162-1.178c0-.651.52-1.18 1.162-1.18zm3.68 4.025c-3.78 0-6.842 2.607-6.842 5.824 0 3.217 3.063 5.824 6.842 5.824a8.14 8.14 0 002.395-.357.69.69 0 01.57.078l1.525.89a.262.262 0 00.133.043.236.236 0 00.232-.236c0-.058-.023-.115-.038-.171l-.312-1.185a.472.472 0 01.17-.531C21.898 18.828 22.942 17.04 22.942 15c0-3.217-3.063-5.824-6.842-5.824h.178zm-2.344 3.307c.514 0 .93.423.93.944a.937.937 0 01-.93.944.937.937 0 01-.93-.944c0-.521.416-.944.93-.944zm4.676 0c.514 0 .93.423.93.944a.937.937 0 01-.93.944.937.937 0 01-.93-.944c0-.521.416-.944.93-.944z"/>
+              </svg>
+            </div>
+            <div class="min-w-0">
+              <p class="text-sm font-medium" style="color: var(--cyber-text);">微信</p>
+              <p class="text-xs mt-0.5" style="color: var(--cyber-muted);">已绑定</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0 ml-4">
+            <div class="status-dot"></div>
+            <button onclick="handleUnbind('wechat')" class="btn-neon text-xs px-2 py-1 rounded-lg">
+              解除绑定
+            </button>
+          </div>
+        </div>
+
+        <div class="cyber-divider mx-2"></div>
+
+        <!-- QQ Row (Not Bound) -->
+        <div class="account-row flex items-center py-3.5 px-2">
+          <div class="flex items-center gap-3 flex-1 min-w-0">
+            <div class="icon-box" style="background:rgba(18,150,219,0.08);border-color:rgba(18,150,219,0.15);">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="#1296DB">
+                <path d="M12.003 2C6.004 2 3 6.142 3 10.197c0 1.087.155 2.15.456 3.147-.624 1.892-.936 3.393-.954 3.487-.06.32.09.64.38.815.118.07.247.103.378.103.18 0 .36-.062.504-.18.198-.167 1.97-1.672 3.107-2.747 1.357.674 2.91 1.057 4.568 1.057h.038c1.674 0 3.24-.392 4.608-1.077 1.147 1.087 2.927 2.604 3.126 2.77.144.12.324.18.504.18.13 0 .26-.034.378-.103.29-.176.44-.497.38-.816-.018-.095-.332-1.598-.957-3.492.301-.998.456-2.06.456-3.147C21 6.142 17.996 2 12.003 2zM8.5 10.5a1 1 0 110-2 1 1 0 010 2zm7 0a1 1 0 110-2 1 1 0 010 2z"/>
+              </svg>
+            </div>
+            <div class="min-w-0">
+              <p class="text-sm font-medium" style="color: var(--cyber-text);">QQ</p>
+              <p class="text-xs mt-0.5" style="color: var(--cyber-muted);">未绑定</p>
+            </div>
+          </div>
+          <a href="#" class="btn-cyber-primary flex-shrink-0 ml-4 text-sm font-medium px-3 py-1.5 rounded-lg">
+            去绑定
+          </a>
+        </div>
+
+        <div class="cyber-divider mx-2"></div>
+
+        <!-- GitHub Row (Bound) -->
+        <div class="account-row flex items-center py-3.5 px-2">
+          <div class="flex items-center gap-3 flex-1 min-w-0">
+            <div class="icon-box" style="background:rgba(201,209,217,0.06);border-color:rgba(201,209,217,0.1);">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="#C9D1D9">
+                <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
+              </svg>
+            </div>
+            <div class="min-w-0">
+              <p class="text-sm font-medium" style="color: var(--cyber-text);">GitHub</p>
+              <p class="text-xs mt-0.5" style="color: var(--cyber-muted);">已绑定</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0 ml-4">
+            <div class="status-dot"></div>
+            <button onclick="handleUnbind('github')" class="btn-neon text-xs px-2 py-1 rounded-lg">
+              解除绑定
+            </button>
+          </div>
+        </div>
+
+        <!-- Note -->
+        <p class="footer-note mt-4 flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          AT LEAST ONE LOGIN METHOD REQUIRED
+        </p>
+      </div>
+    </div>
+
+    <!-- ==================== Account Security Card ==================== -->
+    <div class="cyber-card">
+      <div class="px-6 py-5">
+        <h2 class="section-title mb-1 flex items-center gap-2">
+          <svg class="w-4 h-4" style="color: var(--cyber-secondary);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+          账户安全
+        </h2>
+        <p class="text-xs mb-4 ml-6" style="color: var(--cyber-muted);">管理您的账户安全设置</p>
+
+        <!-- Edit Nickname -->
+        <a href="#" onclick="event.preventDefault(); toggleNicknameEdit(); window.scrollTo({top: 0, behavior: 'smooth'})" class="action-link flex items-center py-3.5 px-2 group">
+          <div class="flex items-center gap-3 flex-1 min-w-0">
+            <div class="icon-box icon-box-sm" style="background:rgba(99,102,241,0.08);border-color:rgba(99,102,241,0.15);">
+              <svg class="w-4 h-4" style="color:#818CF8;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+              </svg>
+            </div>
+            <div class="min-w-0">
+              <p class="text-sm font-medium" style="color: var(--cyber-text);">修改昵称</p>
+              <p class="text-xs mt-0.5" style="color: var(--cyber-muted);">当前昵称: 张三</p>
+            </div>
+          </div>
+          <svg class="arrow-icon w-4 h-4 flex-shrink-0 ml-4" style="color: var(--cyber-muted); opacity: 0.3;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+
+        <div class="cyber-divider mx-2"></div>
+
+        <!-- Login Records -->
+        <a href="#" class="action-link flex items-center py-3.5 px-2 group">
+          <div class="flex items-center gap-3 flex-1 min-w-0">
+            <div class="icon-box icon-box-sm" style="background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.15);">
+              <svg class="w-4 h-4" style="color:#F59E0B;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <div class="min-w-0">
+              <p class="text-sm font-medium" style="color: var(--cyber-text);">查看登录记录</p>
+              <p class="text-xs mt-0.5" style="color: var(--cyber-muted);">查看近期的登录历史</p>
+            </div>
+          </div>
+          <svg class="arrow-icon w-4 h-4 flex-shrink-0 ml-4" style="color: var(--cyber-muted); opacity: 0.3;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+
+    <!-- Footer spacing -->
+    <div class="h-8"></div>
+
+  </main>
+
+  <script>
+    // --- Nickname Edit ---
+    let originalNickname = '张三';
+
+    // --- Avatar ---
+    // 模拟从后端获取的用户数据（实际部署时通过 API 获取）
+    // 后端 User 模型已有 avatar 字段: URLField(max_length=500, blank=True)
+    const userData = {
+      nickname: '张三',
+      avatar: ''  // 为空时显示字母头像，有URL时显示图片
+    };
+
+    function initAvatar() {
+      if (userData.avatar) {
+        const img = document.getElementById('avatar-img');
+        img.src = userData.avatar;
+        img.classList.remove('hidden');
+        document.getElementById('avatar-letter').classList.add('hidden');
+        // 图片加载失败时回退到字母头像
+        img.onerror = () => {
+          img.classList.add('hidden');
+          document.getElementById('avatar-letter').classList.remove('hidden');
+        };
+      }
+      // 更新昵称
+      document.getElementById('user-nickname').textContent = userData.nickname;
+    }
+
+    function handleAvatarUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      // 验证文件类型和大小
+      if (!file.type.startsWith('image/')) {
+        alert('请选择图片文件');
+        return;
+      }
+      if (file.size > 2 * 1024 * 1024) {
+        alert('图片大小不能超过 2MB');
+        return;
+      }
+
+      // 预览
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = document.getElementById('avatar-img');
+        img.src = e.target.result;
+        img.classList.remove('hidden');
+        document.getElementById('avatar-letter').classList.add('hidden');
+
+        // 实际部署时：上传到服务器，获取返回的 URL
+        // fetch('/api/users/avatar/', { method: 'POST', body: formData })
+        //   .then(res => res.json())
+        //   .then(data => { userData.avatar = data.avatar_url; });
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // 页面加载时初始化头像
+    document.addEventListener('DOMContentLoaded', () => {
+      initAvatar();
+    });
+
+    function toggleNicknameEdit() {
+      const editArea = document.getElementById('nickname-edit');
+      const input = document.getElementById('nickname-input');
+      if (editArea.classList.contains('hidden')) {
+        editArea.classList.remove('hidden');
+        input.value = document.getElementById('user-nickname').textContent;
+        input.focus();
+        input.select();
+      } else {
+        editArea.classList.add('hidden');
+      }
+    }
+
+    function saveNickname() {
+      const input = document.getElementById('nickname-input');
+      const newName = input.value.trim();
+      if (newName && newName !== document.getElementById('user-nickname').textContent) {
+        document.getElementById('user-nickname').textContent = newName;
+        originalNickname = newName;
+      }
+      document.getElementById('nickname-edit').classList.add('hidden');
+    }
+
+    function cancelNicknameEdit() {
+      document.getElementById('nickname-edit').classList.add('hidden');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const input = document.getElementById('nickname-input');
+      if (input) {
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') saveNickname();
+          if (e.key === 'Escape') cancelNicknameEdit();
+        });
+      }
+    });
+
+    // --- Logout ---
+    function handleLogout() {
+      if (confirm('确定要退出登录吗？')) {
+        window.location.href = 'login.html';
+      }
+    }
+
+    // --- Unbind ---
+    function handleUnbind(platform) {
+      const names = { wechat: '微信', qq: 'QQ', github: 'GitHub' };
+      if (confirm('确定要解除 ' + names[platform] + ' 绑定吗？')) {
+        alert('已解除' + names[platform] + '绑定');
+      }
+    }
+  </script>
+
+</body>
+</html>
