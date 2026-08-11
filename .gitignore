@@ -1,0 +1,43 @@
+# --- Monorepo root ignores (WorkBuddy session internals) ---
+.workbuddy/
+.venv/
+overview.md
+
+# --- Session scratch (not project deliverables) ---
+.tmp/
+.trash/
+integration-report.md
+rs256-jwks-overview.md
+verify-e2e.py
+verify-e2e.mjs
+page_out.html
+_verify_*.py
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.swp
+
+# --- Secrets / local DB / Python caches (never commit) ---
+keys/
+*.pem
+db.sqlite3
+__pycache__/
+*.pyc
+.pytest_cache/
+staticfiles/
+
+# --- Debug scratch / generated (WorkBuddy session + local runs, never commit) ---
+_*.txt
+_*.tmp
+*.log
+media/
+.next/
+node_modules/
+
+# --- Local real-env files (examples with .example are safe & committed) ---
+.env
+.env.production
+.env.docker
+.env.local
+.env*.local

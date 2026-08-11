@@ -1,0 +1,46 @@
+# ---------------------------------------------------------------------------
+# RUNTIME lock — fully pinned production dependency closure.
+#
+# This is what the Docker image installs. It deliberately contains NO test
+# packages (pytest / fakeredis / requests-mock): shipping a test runner into a
+# production image widens the attack surface for zero benefit.
+#   * dev / CI          -> requirements-dev.lock.txt (this file + test deps)
+#   * declared ranges   -> requirements.txt (source of truth for upgrades)
+#
+# Regenerate after changing requirements.txt:
+#   pip install --dry-run --ignore-installed --report r.json -r requirements.txt
+#   (or: create a clean venv, `pip install -r requirements.txt`, `pip freeze`)
+# ---------------------------------------------------------------------------
+asgiref==3.12.1
+Authlib==1.7.2
+certifi==2026.7.22
+cbor2==6.1.4
+cffi==2.1.1
+charset-normalizer==3.4.9
+cryptography==50.0.0
+dj-database-url==3.1.2
+Django==5.2.17
+django-cors-headers==4.9.0
+djangorestframework==3.17.2
+djangorestframework_simplejwt==5.5.1
+gunicorn==26.0.0
+idna==3.18
+joserfc==1.7.4
+packaging==26.3
+psycopg==3.3.4
+psycopg-binary==3.3.4
+pycparser==3.0
+pyasn1==0.6.4
+pyasn1_modules==0.4.2
+PyJWT==2.13.0
+pyopenssl==26.4.0
+pyotp==2.10.0
+Pillow==12.3.0
+qrcode==8.2
+webauthn==3.0.0
+redis==8.1.0
+requests==2.34.2
+sqlparse==0.5.5
+tzdata==2026.3
+urllib3==2.7.0
+whitenoise==6.12.0

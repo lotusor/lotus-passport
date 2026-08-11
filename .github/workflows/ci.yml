@@ -1,0 +1,236 @@
+# Lotus Passport — CI
+#
+# Six independent jobs, one per deliverable in the monorepo:
+#   backend    Django app          (pytest + system checks + migration drift)
+#   frontend   Next.js SPA         (next build against the lockfile)
+#   sdk-python verification SDK    (pytest)
+#   sdk-js     verification SDK    (node --test, zero dependencies)
+#   audit      dependency CVEs     (ADVISORY ONLY — never blocks)
+#   images     Dockerfiles         (build only — catches broken build stages)
+#
+# Everything installs from a LOCKFILE where one exists, so a green CI run means
+# the exact same dependency set a deploy would get.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the previous run — no queue pile-up.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ------------------------------------------------------------------ #
+  backend:
+    name: backend (Django)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lotus-passport
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: lotus-passport/requirements-dev.lock.txt
+
+      - name: Install (locked)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.lock.txt
+
+      - name: Test suite
+        run: pytest -q
+
+      # DEBUG=False exercises the production settings branch: the RS256 key
+      # store must exist, ALLOWED_HOSTS must be real, passport.checks
+      # (W001/W002/W003) must not fire, and Django's own --deploy audit must be
+      # clean. `--fail-level WARNING` turns every advisory into a hard failure —
+      # that is the point: a deployment-blocking warning should block the build,
+      # not scroll past in a log.
+      #
+      # generate_keys runs first because settings refuses to load in production
+      # without an RS256 keypair (that is the intended fail-closed behaviour).
+      - name: Production system checks
+        env:
+          DEBUG: "False"
+          # Long + high-entropy, otherwise security.W009 trips. Throwaway value:
+          # it never leaves the runner and signs nothing that outlives the job.
+          SECRET_KEY: ci-9f3b7c21ae604d8fb5e0c7a29d14683bf07e5a1c2d938476ba0e5f31c8d27a94
+          TOKEN_ENCRYPTION_KEY: Y2ktb25seS0zMi1ieXRlLWtleS1mb3ItdGVzdHMhIQ==
+          ALLOWED_HOSTS: ci.example.com
+          # Real deployments enable this once TLS is live; asserting it here
+          # keeps security.W008 from being permanently muted.
+          SECURE_SSL_REDIRECT: "True"
+          PASSPORT_JWT_KEYS_DIR: ${{ runner.temp }}/passport-keys
+        run: |
+          python manage.py generate_keys
+          python manage.py check --deploy --fail-level WARNING
+
+      # Fails if a model change was committed without its migration.
+      - name: Migration drift
+        run: python manage.py makemigrations --check --dry-run
+
+  # ------------------------------------------------------------------ #
+  frontend:
+    name: frontend (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lotus-passport-security
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: lotus-passport-security/package-lock.json
+
+      # `npm ci` (not `npm install`): lockfile-exact, and it fails loudly if
+      # package.json and package-lock.json have drifted apart.
+      - name: Install (locked)
+        run: npm ci
+
+      - name: Build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          # Build-time value only; the real origin is injected at runtime.
+          PASSPORT_API_ORIGIN: http://localhost:8000
+        run: npm run build
+
+  # ------------------------------------------------------------------ #
+  sdk-python:
+    name: sdk (python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lotus-passport-sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # A distributed LIBRARY is intentionally not lock-pinned: it must keep
+      # working against the dependency ranges it advertises, so CI installs the
+      # floating ranges on purpose — that is how upstream breakage gets caught.
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,drf]"
+
+      - name: Test suite
+        run: pytest -q
+
+  # ------------------------------------------------------------------ #
+  sdk-js:
+    name: sdk (js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lotus-passport-sdk-js
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Zero dependencies and zero devDependencies by design, so there is
+      # nothing to install and no lockfile to honour — node's built-in runner
+      # is the whole test toolchain.
+      - name: Test suite
+        run: node --test
+
+  # ------------------------------------------------------------------ #
+  audit:
+    name: dependency audit (advisory)
+    runs-on: ubuntu-latest
+    # ADVISORY ONLY. A CVE published upstream overnight must not turn the whole
+    # pipeline red and block unrelated work — but it must not disappear either.
+    # So: never fail, always publish to the job summary where it stays visible.
+    #
+    # Accepted-risk findings are documented in HANDOVER.md §7.7. Review this
+    # summary against that list; anything NOT on it is new and needs triage.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: npm audit (frontend)
+        continue-on-error: true
+        working-directory: lotus-passport-security
+        run: |
+          {
+            echo '## npm audit — frontend'
+            echo ''
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          npm audit 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # Audits the RUNTIME closure only (requirements.lock.txt). Test-only
+      # packages from requirements-dev.lock.txt never reach a server, so a
+      # finding there is noise.
+      - name: pip-audit (backend runtime)
+        continue-on-error: true
+        working-directory: lotus-passport
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          {
+            echo '## pip-audit — backend runtime'
+            echo ''
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          pip-audit -r requirements.lock.txt --progress-spinner off 2>&1 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  # ------------------------------------------------------------------ #
+  images:
+    name: docker images
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Build only, never push. This is what catches things like "the build
+      # stage silently generated an RSA key" or "npm ci dropped devDeps so
+      # next build can't find tailwind".
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./lotus-passport
+          push: false
+          load: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./lotus-passport-security
+          push: false
+          load: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

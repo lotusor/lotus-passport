@@ -1,0 +1,37 @@
+# ---- Runtime ----
+Django>=5.1,<5.3
+dj-database-url>=2.1
+djangorestframework>=3.15
+djangorestframework-simplejwt>=5.3
+django-cors-headers>=4.3
+authlib>=1.3
+cryptography>=42.0
+redis>=5.0
+requests>=2.31
+
+# ---- Account security factors (§9.4a / §9.4c) ----
+# TOTP 两步验证已移除（§9.4c 后续决策：不开发配套验证器 App）。保留 pyotp/qrcode
+# 仅为兼容历史依赖说明，可后续清理。
+pyotp>=2.9
+# 头像本地上传（§9.1 资料）：Pillow 负责校验真实图像、重压到 ≤128KB、
+# 缩放到 256×256 内，避免存放大图/损坏文件/伪装图片。
+Pillow>=10.0
+qrcode>=7.4
+
+# WebAuthn / Passkey（§9.4b）。纯本地密码学库（CBOR / COSE 解析），无外部服务依赖。
+webauthn>=3.0
+
+# ---- Deployment ----
+gunicorn>=21.2
+whitenoise>=6.6
+# PostgreSQL driver. Django 5.x postgresql backend imports `psycopg` (psycopg 3);
+# it is NOT vendored, so the container crashes with "No module named 'psycopg'"
+# the moment it connects to PostgreSQL unless this is installed. The [binary] extra
+# ships a prebuilt libpq so we don't need libpq-dev/gcc in the image.
+psycopg[binary]>=3.1
+
+# ---- Test / Dev ----
+pytest>=8.0
+pytest-django>=4.8
+fakeredis>=2.20
+requests-mock>=1.11

@@ -1,0 +1,11 @@
+# --- Node / Next.js ---
+node_modules/
+.next*/
+out/
+.swc/
+.env.local
+.env*.local
+
+# --- Misc ---
+*.log
+.DS_Store
