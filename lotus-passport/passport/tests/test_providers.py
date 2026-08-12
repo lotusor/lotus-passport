@@ -83,3 +83,42 @@ def test_qq_exchange_and_identity_urlencoded():
 def test_qq_parse_openid_json():
     assert QQProvider._parse_openid('{"openid":"X"}') == "X"
     assert QQProvider._parse_openid('callback( {"openid":"Y"} );') == "Y"
+
+
+def test_qq_exchange_raises_on_error_json():
+    """QQ error JSON must surface the real reason, not a KeyError 502."""
+    with patch("passport.providers.requests.post") as mpost:
+        mpost.return_value = MagicMock(
+            headers={"Content-Type": "application/json"},
+            json=lambda: {"error": 100007, "error_description": "client_secret error"},
+        )
+        p = QQProvider("cid", "csec", "https://cb")
+        try:
+            p.exchange_code("code")
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "client_secret error" in str(exc)
+
+
+def test_qq_exchange_raises_on_error_urlencoded():
+    """QQ error urlencoded body must also be detected."""
+    with patch("passport.providers.requests.post") as mpost:
+        mpost.return_value = MagicMock(
+            headers={"Content-Type": "text/html"},
+            text="error=100007&error_description=client_secret error",
+        )
+        p = QQProvider("cid", "csec", "https://cb")
+        try:
+            p.exchange_code("code")
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "client_secret error" in str(exc)
+
+
+def test_qq_fetch_identity_raises_without_access_token():
+    p = QQProvider("cid", "csec", "https://cb")
+    try:
+        p.fetch_identity({"openid": "X"})  # no access_token key
+        assert False, "expected ValueError"
+    except ValueError as exc:
+        assert "access_token" in str(exc)

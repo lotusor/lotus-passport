@@ -175,10 +175,19 @@ class QQProvider(BaseProvider):
             token = resp.json()
         else:  # QQ sometimes returns urlencoded even with fmt=json
             token = dict(parse_qsl(resp.text))
+        # QQ returns an error payload (no access_token) on failure, e.g.
+        # {"error": 100007, "error_description": "client_secret error"} or the
+        # urlencoded equivalent. Without this check the missing key bubbles up
+        # as a misleading `KeyError: 'access_token'` 502.
+        if "error" in token:
+            desc = token.get("error_description") or token.get("error")
+            raise ValueError(f"QQ 令牌接口返回错误: {desc}")
         return token, self._expires_at(token)
 
     def fetch_identity(self, raw_token: dict) -> Identity:
-        at = raw_token["access_token"]
+        at = raw_token.get("access_token")
+        if not at:
+            raise ValueError("QQ 令牌响应缺少 access_token 字段")
         me_text = requests.get(
             self.me_url, params={"access_token": at, "fmt": "json"}, timeout=10
         ).text
