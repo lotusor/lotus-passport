@@ -170,10 +170,12 @@ class QQProvider(BaseProvider):
             headers={"Accept": "application/json"},
             timeout=10,
         )
-        ct = resp.headers.get("Content-Type", "")
-        if "json" in ct:
+        # QQ ignores the Accept header and returns `text/html` even when fmt=json
+        # yields a JSON body, so Content-Type is unreliable. Try JSON first, then
+        # fall back to the urlencoded form.
+        try:
             token = resp.json()
-        else:  # QQ sometimes returns urlencoded even with fmt=json
+        except ValueError:
             token = dict(parse_qsl(resp.text))
         # QQ returns an error payload (no access_token) on failure, e.g.
         # {"error": 100007, "error_description": "client_secret error"} or the

@@ -80,6 +80,28 @@ def test_qq_exchange_and_identity_urlencoded():
     assert token["access_token"] == "qq_at"
 
 
+def test_qq_exchange_json_with_text_html_content_type():
+    """QQ returns JSON (fmt=json) but ships Content-Type: text/html — the real
+    cause of the original 'access_token' 502. JSON must win over parse_qsl."""
+    with patch("passport.providers.requests.post") as mpost, patch(
+        "passport.providers.requests.get"
+    ) as mget:
+        mpost.return_value = MagicMock(
+            headers={"Content-Type": "text/html;charset=utf-8"},
+            text='{"access_token":"qq_at","expires_in":3600,"refresh_token":"r"}',
+        )
+        mget.side_effect = [
+            MagicMock(text='callback( {"openid":"QQOPENID"} );'),
+            MagicMock(json=lambda: {"nickname": "QQ用户", "figureurl_qq_2": "https://qq"}),
+        ]
+        p = QQProvider("cid", "csec", "https://cb")
+        token, _ = p.exchange_code("code")
+        ident = p.fetch_identity(token)
+
+    assert token["access_token"] == "qq_at"
+    assert ident.provider_user_id == "QQOPENID"
+
+
 def test_qq_parse_openid_json():
     assert QQProvider._parse_openid('{"openid":"X"}') == "X"
     assert QQProvider._parse_openid('callback( {"openid":"Y"} );') == "Y"
