@@ -22,6 +22,8 @@ def _auth_client(user: PassportUser) -> tuple[APIClient, dict]:
     tokens = issue_tokens(user)
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+    # 必须带 UA：IsAuthenticatedAndTrusted 按 UA 指纹匹配 TrustedDevice。
+    client.defaults["HTTP_USER_AGENT"] = DEVICE_UA
     return client, tokens
 
 
@@ -142,3 +144,72 @@ def test_revoke_succeeds_even_if_blacklist_fails(monkeypatch):
     assert resp.status_code == 204  # 黑名单失败不阻塞、不 500
     assert not TrustedDevice.objects.filter(id=dev.id).exists()
     assert not Session.objects.filter(jti=tokens["jti"]).exists()
+
+
+# --------------------------------------------------------------------------- #
+# Access-token trust gate (§9.3 regression fix):
+# Before this gate, an untrusted/revoked device's 30-min access token kept
+# auto-logging-in because /api/v1/userinfo/ only verified the JWT signature.
+# Now every business view's IsAuthenticatedAndTrusted short-circuits to 401.
+# --------------------------------------------------------------------------- #
+@pytest.mark.django_db
+def test_userinfo_rejects_untrusted_device():
+    user = PassportUser.objects.create(email="userinfo-untrusted@x.com")
+    # conftest's auto-trust signal has already created a trusted=True row for
+    # this user; remove it so the only TrustedDevice in play is the untrusted
+    # one we're testing against.
+    TrustedDevice.objects.filter(user=user, trusted=True).delete()
+    _make_device(user, trusted=False)  # device is known but untrusted
+    tokens = issue_tokens(user)
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+    client.defaults["HTTP_USER_AGENT"] = DEVICE_UA
+    resp = client.get("/api/v1/userinfo/")
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == 401
+
+
+@pytest.mark.django_db
+def test_userinfo_rejects_revoked_device():
+    """No TrustedDevice row at all — as if DELETE /devices/<pk>/ ran earlier."""
+    user = PassportUser.objects.create(email="userinfo-revoked@x.com")
+    # Strip conftest's auto-trusted device so the gate sees zero rows.
+    TrustedDevice.objects.filter(user=user).delete()
+    tokens = issue_tokens(user)
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+    client.defaults["HTTP_USER_AGENT"] = DEVICE_UA
+    resp = client.get("/api/v1/userinfo/")
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_userinfo_allows_trusted_device():
+    user = PassportUser.objects.create(email="userinfo-trusted@x.com")
+    _make_device(user, trusted=True)
+    tokens = issue_tokens(user)
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+    client.defaults["HTTP_USER_AGENT"] = DEVICE_UA
+    resp = client.get("/api/v1/userinfo/")
+    assert resp.status_code == 200
+    assert resp.json()["email"] == "userinfo-trusted@x.com"
+
+
+@pytest.mark.django_db
+def test_logout_does_not_require_trust():
+    """LogoutView must stay reachable even when the device is untrusted,
+    so a user can still clear their local tokens after a revoke (§9.3).
+    """
+    user = PassportUser.objects.create(email="logout-while-untrusted@x.com")
+    _make_device(user, trusted=False)
+    tokens = issue_tokens(user)
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+    client.defaults["HTTP_USER_AGENT"] = DEVICE_UA
+    resp = client.post("/api/v1/logout/", {}, format="json")
+    assert resp.status_code == 200

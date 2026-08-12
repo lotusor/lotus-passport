@@ -117,10 +117,19 @@ def test_sessions_list_marks_current_and_revoke():
 def test_devices_crud():
     user = PassportUser.objects.create(email="d@x.com")
     client, _ = _auth_client(user)
-
-    assert client.get("/api/v1/devices/").json() == []
+    # §9.3: conftest auto-creates one TrustedDevice trusted=True on user
+    # creation (so the trust gate has a row to match). The list therefore
+    # starts with the current device already listed, plus any pre-existing
+    # records. Tests below verify CRUD on a *separately created* device.
+    listed = client.get("/api/v1/devices/").json()
+    assert len(listed) >= 1
+    pre_existing_ids = {d["id"] for d in listed}
 
     dev = TrustedDevice.objects.create(user=user, name="MacBook", trusted=False)
+    listed = client.get("/api/v1/devices/").json()
+    assert len(listed) == len(pre_existing_ids) + 1
+    assert any(d["id"] == dev.id for d in listed)
+
     resp = client.patch(
         f"/api/v1/devices/{dev.id}/", {"trusted": True, "name": "我的 MacBook"}, format="json"
     )

@@ -38,8 +38,8 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.views import TokenRefreshView as _SimpleJWTRefresh
 
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
 
@@ -77,6 +77,47 @@ from .serializers import (
     SessionSerializer,
     LoginEventSerializer,
 )
+
+
+# --------------------------------------------------------------------------- #
+# Device-trust gate (§9.3): access tokens remain valid for 30min after JWT
+# signature is verified, so IsAuthenticated alone lets a revoked/untrusted
+# device keep auto-logging-in until the access expires. This gate closes that
+# window: every business view checks that the current UA still has a
+# trusted=True TrustedDevice row, returning 401 so the frontend's existing
+# `restore()`/`refresh()` 401-handler clears the local tokens and forces a
+# fresh login.
+# --------------------------------------------------------------------------- #
+def _is_device_trusted(request) -> bool:
+    user = getattr(request, "user", None)
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    parsed = parse_user_agent(request.META.get("HTTP_USER_AGENT", ""))
+    return TrustedDevice.objects.filter(
+        user=user,
+        device_type=parsed["device_type"],
+        os=parsed["os"],
+        browser=parsed["browser"],
+        trusted=True,
+    ).exists()
+
+
+class IsAuthenticatedAndTrusted(BasePermission):
+    """Authenticated AND 当前 UA 在 TrustedDevice 中存在且 trusted=True。
+
+    失败抛 NotAuthenticated (401) 而非 PermissionDenied (403)，使前端
+    auth-context 的 401 兜底清 token 逻辑可以自动触发重新登录。
+    """
+
+    message = "该设备未受信任，请重新登录"
+
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "is_authenticated", False):
+            raise NotAuthenticated()
+        if not _is_device_trusted(request):
+            raise NotAuthenticated(self.message)
+        return True
 
 
 def _claims_of(raw_token) -> dict:
@@ -402,7 +443,7 @@ class OAuthBindView(APIView):
     the state and attaches the identity to this user instead of creating one.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def post(self, request, provider: str):
         if not check_rate_limit(request, *settings.RATE_LIMIT_LOGIN, scope="oauth-bind"):
@@ -476,7 +517,7 @@ class OAuthUnbindView(APIView):
     another OAuth account). TOTP alone does not count as a standalone method.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def delete(self, request, provider: str):
         if provider not in REGISTRY:
@@ -512,7 +553,7 @@ class OAuthUnbindView(APIView):
 class OAuthAccountsView(APIView):
     """List the OAuth providers linked to the CURRENT user (§9.2)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def get(self, request):
         rows = [
@@ -532,6 +573,11 @@ class UserInfoView(APIView):
     This is the contract integrating apps (e.g. algo_rank) call. It returns ONLY
     identity — business fields must be resolved downstream.
     """
+
+    # §9.3 access-token trust gate: a revoked/untrusted device's 30-min JWT is
+    # otherwise still accepted here, letting it auto-login. The gate forces a
+    # 401 so the frontend `restore()` clears the local tokens and re-auths.
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def get(self, request):
         user: PassportUser = request.user
@@ -671,7 +717,7 @@ class LogoutView(APIView):
 class ProfileView(APIView):
     """GET own profile; PATCH editable identity fields (§9.1)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def get(self, request):
         return Response(ProfileSerializer(request.user).data)
@@ -832,7 +878,7 @@ class AvatarUploadView(APIView):
     成功返回 build_userinfo（含最新 avatar）。avatar 仍是 URLField，无表结构变更。
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
@@ -946,7 +992,7 @@ def _owner_queryset(request, model):
 class DeviceListView(APIView):
     """List the user's authorized devices (§9.3)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def get(self, request):
         devices = _owner_queryset(request, TrustedDevice)
@@ -956,7 +1002,7 @@ class DeviceListView(APIView):
 class DeviceDetailView(APIView):
     """Rename / (un)trust / remove an authorized device (§9.3)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def _get(self, request, pk: int) -> TrustedDevice:
         dev = get_object_or_404(_owner_queryset(request, TrustedDevice), pk=pk)
@@ -991,7 +1037,7 @@ def _current_jti(request) -> str | None:
 class SessionListView(APIView):
     """List active sessions; DELETE revokes all *other* sessions (§9.4d)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def get(self, request):
         current = _current_jti(request)
@@ -1017,7 +1063,7 @@ class SessionListView(APIView):
 class SessionDetailView(APIView):
     """Revoke a single session (§9.4d)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def delete(self, request, pk: int):
         sess = get_object_or_404(_owner_queryset(request, Session), pk=pk)
@@ -1070,7 +1116,7 @@ def _revoke_device_sessions(user: "PassportUser", dev: "TrustedDevice") -> int:
 class LoginHistoryView(APIView):
     """Recent login attempts for the user (§9.4e)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def get(self, request):
         events = _owner_queryset(request, LoginEvent)[:50]
@@ -1228,7 +1274,7 @@ class PasswordLoginView(APIView):
 class PasswordStatusView(APIView):
     """Report whether the account has a password set (§9.4a)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def get(self, request):
         user = request.user
@@ -1254,7 +1300,7 @@ class PasswordChangeView(APIView):
       password can't keep a foothold.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def post(self, request):
         user = request.user
@@ -1298,7 +1344,7 @@ class PasswordChangeView(APIView):
 class PasskeyListView(APIView):
     """List the user's registered passkeys (security page)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def get(self, request):
         items = Passkey.objects.filter(user=request.user).order_by("-created_at")
@@ -1308,7 +1354,7 @@ class PasskeyListView(APIView):
 class WebAuthnRegisterOptionsView(APIView):
     """Step 1 of registration: intentionally disabled (§9.4b 当前功能待开发)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def post(self, request):
         return Response(
@@ -1320,7 +1366,7 @@ class WebAuthnRegisterOptionsView(APIView):
 class WebAuthnRegisterView(APIView):
     """Step 2 of registration: intentionally disabled (§9.4b 当前功能待开发)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def post(self, request):
         return Response(
@@ -1367,7 +1413,7 @@ class WebAuthnVerifyView(APIView):
 class PasskeyDetailView(APIView):
     """Remove a passkey (owner only)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedAndTrusted]
 
     def delete(self, request, pk):
         obj = Passkey.objects.filter(id=pk, user=request.user).first()

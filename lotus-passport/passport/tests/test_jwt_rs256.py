@@ -65,9 +65,18 @@ def test_verify_access_token_with_jwks_public_key(user):
 
 def test_userinfo_accepts_rs256_token(user, client):
     tokens = issue_tokens(user)
+    # The §9.3 trust gate keys on the UA fingerprint; pytest-django's plain
+    # Client doesn't go through DRF's APIClient (which conftest patches), so
+    # pass the UA explicitly.
+    from passport.auth_events import parse_user_agent  # noqa: F401  (sanity)
+    rs_ua = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0"
+    )
     resp = client.get(
         "/api/v1/userinfo/",
         HTTP_AUTHORIZATION=f"Bearer {tokens['access']}",
+        HTTP_USER_AGENT=rs_ua,
     )
     assert resp.status_code == 200
     assert resp.json()["passport_user_id"] == str(user.passport_user_id)
