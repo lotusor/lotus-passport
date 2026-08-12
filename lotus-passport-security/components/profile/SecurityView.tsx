@@ -49,6 +49,11 @@ const PROVIDER_META: Record<string, { name: string; hint: string }> = {
 };
 const ALL_PROVIDERS = Object.keys(PROVIDER_META);
 
+// 密码强度是纯前端的本地估算（后端刻意不存储，避免给拿到库的人标出弱口令账号）。
+// 按 passport_user_id 隔离持久化到 localStorage，使绑定 OAuth 后的整页回跳、刷新、账户切换
+// 都不会把「密码强度」徽章重置回占位符「—」。
+const strengthKey = (uid: string) => `lotus:pw-strength:${uid}`;
+
 function toProviders(accounts: OAuthAccount[]): Provider[] {
   const linked = new Map(accounts.map((a) => [a.provider, a.linked_at]));
   return ALL_PROVIDERS.map((id) => {
@@ -137,6 +142,17 @@ export function SecurityView() {
     };
   }, [accessToken]);
 
+  // 账户切换 / 绑定 OAuth 整页回跳 / 刷新后，从 localStorage 恢复已估算的密码强度。
+  // 仅在确有本地密码（has_password 为真）时展示持久化值，否则保持占位符「—」。
+  React.useEffect(() => {
+    const uid = user?.passport_user_id;
+    if (!uid) return;
+    const saved = typeof window !== "undefined"
+      ? window.localStorage.getItem(strengthKey(uid))
+      : null;
+    setStrength(saved && pwdStatus?.has_password ? saved : "—");
+  }, [user?.passport_user_id, pwdStatus?.has_password]);
+
   const factors: SecurityFactors = React.useMemo(
     () => ({
       password: Boolean(pwdStatus?.has_password),
@@ -195,7 +211,12 @@ export function SecurityView() {
     const ps = await getPasswordStatus(accessToken);
     setPwdStatus(ps);
     // 用刚设置的新密码估算真实强度，刷新「密码强度」徽章。
-    setStrength(newPassword ? scorePassword(newPassword).label : "—");
+    const label = newPassword ? scorePassword(newPassword).label : "—";
+    setStrength(label);
+    // 持久化强度（按账户隔离），避免后续整页回跳 / 刷新时重置为占位符。
+    if (label !== "—" && user?.passport_user_id) {
+      window.localStorage.setItem(strengthKey(user.passport_user_id), label);
+    }
     // 同步全局 user.has_password，使资料页的「引导设置密码」横幅即时消失。
     setUser({ has_password: ps.has_password });
     setPwOpen(false);
