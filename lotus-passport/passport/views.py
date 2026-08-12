@@ -44,6 +44,7 @@ from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
 
 from .jwt import decode_access, issue_tokens
+from .auth_events import parse_user_agent
 from .models import (
     AccountDeletion,
     OAuthAccount,
@@ -553,8 +554,67 @@ class UserInfoView(APIView):
         return Response(build_userinfo(user, providers))
 
 
+def _device_owner_for_refresh(raw: str) -> "PassportUser | None":
+    """Resolve the refresh token's owner WITHOUT validating the signature.
+
+    Returns None when the token is missing / undecodable / unknown so the
+    built-in simplejwt validation still runs and returns its own 400/401.
+    """
+
+    if not raw:
+        return None
+    try:
+        token = RefreshToken(raw)
+    except Exception:  # noqa: BLE001
+        return None
+    uid = token.get("user_id")
+    if uid is None:
+        return None
+    try:
+        return PassportUser.objects.get(id=uid)
+    except PassportUser.DoesNotExist:
+        return None
+
+
+def _device_blocks_refresh(user: "PassportUser", request) -> bool:
+    """True when the requesting device is an *untrusted* device for `user`.
+
+    A device the user has explicitly untrusted (§9.3) must not be silently
+    auto-logged-in via the refresh token — it has to re-authenticate. Match by
+    the same UA fingerprint used to dedupe TrustedDevice rows. Devices with no
+    recorded row (tracking never ran) are NOT blocked, so we never lock a user
+    out by accident.
+    """
+
+    parsed = parse_user_agent(request.META.get("HTTP_USER_AGENT", ""))
+    return TrustedDevice.objects.filter(
+        user=user,
+        device_type=parsed["device_type"],
+        os=parsed["os"],
+        browser=parsed["browser"],
+        trusted=False,
+    ).exists()
+
+
 class TokenRefreshView(_SimpleJWTRefresh):
-    """Rotate an access token from a refresh token (simplejwt built-in)."""
+    """Rotate an access token from a refresh token, gated on device trust (§9.3).
+
+    An untrusted device's refresh is rejected with 401 so the client is forced
+    to re-authenticate instead of being auto-logged-in. Trusted / unrecorded
+    devices refresh normally.
+    """
+
+    def post(self, request, *args, **kwargs):
+        raw = (
+            request.data.get("refresh") or request.data.get("refresh_token") or ""
+        ).strip()
+        owner = _device_owner_for_refresh(raw)
+        if owner is not None and _device_blocks_refresh(owner, request):
+            return Response(
+                {"error": {"code": 401, "message": "该设备未受信任，请重新登录"}},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        return super().post(request, *args, **kwargs)
 
 
 class LogoutView(APIView):
@@ -906,16 +966,20 @@ class DeviceDetailView(APIView):
         dev = self._get(request, pk)
         ser = DeviceSerializer(dev, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
+        new_trusted = ser.validated_data.get("trusted")
         # 首次标记为信任时记录时间
-        if ser.validated_data.get("trusted") and not dev.trusted:
-            from django.utils import timezone
-
+        if new_trusted and not dev.trusted:
             dev.first_trusted_at = timezone.now()
+        # 取消信任：立即注销该设备的全部会话，下次访问需重新验证（§9.3）
+        if new_trusted is False and dev.trusted:
+            _revoke_device_sessions(request.user, dev)
         ser.save()
         return Response(DeviceSerializer(dev).data)
 
     def delete(self, request, pk: int):
         dev = self._get(request, pk)
+        # 撤销设备同时注销其全部会话，使其立即下线（§9.3）
+        _revoke_device_sessions(request.user, dev)
         dev.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -974,6 +1038,25 @@ def _revoke_session(sess: Session) -> bool:
         return True
     except Exception:  # noqa: BLE001
         return False
+
+
+def _revoke_device_sessions(user: "PassportUser", dev: "TrustedDevice") -> int:
+    """Log a device out everywhere: blacklist + delete every Session whose UA
+
+    fingerprint matches `dev` (same dedup key as TrustedDevice). Used when a
+    device is untrusted or revoked so the change takes effect immediately (§9.3).
+    """
+
+    revoked = 0
+    for sess in Session.objects.filter(
+        user=user,
+        device_type=dev.device_type,
+        os=dev.os,
+        browser=dev.browser,
+    ):
+        if _revoke_session(sess):
+            revoked += 1
+    return revoked
 
 
 class LoginHistoryView(APIView):
