@@ -1031,13 +1031,21 @@ class SessionDetailView(APIView):
 
 
 def _revoke_session(sess: Session) -> bool:
-    """Delete the session row and blacklist its jti (reuse logout path)."""
+    """Delete the session row and best-effort blacklist its jti (reuse logout).
+
+    The DB row deletion is the *authoritative* logout: it removes the device's
+    active session immediately. The Redis blacklist only hardens offline-
+    verifying integrators and may be skipped if Redis is slow/unavailable — so
+    we delete first and blacklist afterwards. A missing session already blocks
+    our own refresh path, so logout must never depend on Redis succeeding.
+    """
+    jti = sess.jti
+    sess.delete()
     try:
-        RevocationStore().revoke(sess.jti, 60 * 60 * 24 * 14)
-        sess.delete()
-        return True
-    except Exception:  # noqa: BLE001
-        return False
+        RevocationStore().revoke(jti, 60 * 60 * 24 * 14)
+    except Exception:  # noqa: BLE001  (best-effort; socket_timeout bounds it)
+        pass
+    return True
 
 
 def _revoke_device_sessions(user: "PassportUser", dev: "TrustedDevice") -> int:

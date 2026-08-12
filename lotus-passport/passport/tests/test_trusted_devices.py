@@ -109,3 +109,36 @@ def test_untrust_revokes_device_sessions():
     assert dev.trusted is False
     # 取消信任后该设备会话被注销，下次访问需重新验证
     assert not Session.objects.filter(jti=tokens["jti"]).exists()
+
+
+@pytest.mark.django_db
+def test_revoke_succeeds_even_if_blacklist_fails(monkeypatch):
+    """Regression: a slow/failing Redis blacklist must NOT block logout.
+
+    The session-row deletion is authoritative; the jti blacklist is best-
+    effort. If RevocationStore.revoke raises, the device must still be
+    revoked (204) and its session dropped — otherwise the request hangs until
+    gunicorn kills the worker (HTTP 500, no traceback). See §9.3 fix.
+    """
+    import passport.views as views
+
+    def _boom(self, jti, ttl):  # simulate Redis timeout / connection error
+        raise RuntimeError("redis unavailable")
+
+    monkeypatch.setattr(views.RevocationStore, "revoke", _boom)
+
+    user = PassportUser.objects.create(email="blacklist-fail@x.com")
+    client, tokens = _auth_client(user)
+    dev = _make_device(user, trusted=True)
+    Session.objects.create(
+        user=user,
+        jti=tokens["jti"],
+        device_type=dev.device_type,
+        os=dev.os,
+        browser=dev.browser,
+    )
+
+    resp = client.delete(f"/api/v1/devices/{dev.id}/")
+    assert resp.status_code == 204  # 黑名单失败不阻塞、不 500
+    assert not TrustedDevice.objects.filter(id=dev.id).exists()
+    assert not Session.objects.filter(jti=tokens["jti"]).exists()

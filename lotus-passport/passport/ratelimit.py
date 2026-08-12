@@ -43,7 +43,19 @@ def get_redis() -> Any:
     else:
         if redis is None:
             raise RuntimeError("redis is not installed")
-        _CLIENT = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        # Bounded timeouts are critical: without socket_timeout a single slow
+        # / unreachable Redis blocks the whole worker until gunicorn kills it
+        # (HTTP 500, no traceback, request appears to hang). Every Redis call
+        # in this app is best-effort, so failing fast is always the right move.
+        _CLIENT = redis.Redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_timeout=3,
+            socket_connect_timeout=3,
+            socket_keepalive=True,
+            retry_on_timeout=True,
+            health_check_interval=30,
+        )
     return _CLIENT
 
 
