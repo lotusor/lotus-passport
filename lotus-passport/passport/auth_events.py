@@ -92,10 +92,17 @@ def _enforce_session_cap(user: "Any", current_jti: str) -> None:
 
 
 def _ensure_trusted_device(user: "Any", parsed: dict[str, str], location: str) -> None:
-    """首次登录按设备指纹自动写入「授权设备」并默认信任（§9.3）。
+    """登录时按设备指纹写入/刷新「授权设备」，并默认信任（§9.3）。
 
     按 (device_type, os, browser) 去重：同一台设备的重复登录只刷新 last_active_at，
     不会刷出多条。列表因此不再为空，用户可在「登录设备」页撤销 / 取消信任。
+
+    信任语义：一次成功的登录（密码 / OAuth）本身就是「重新验证身份」。所以：
+    - 首次出现的设备 → 直接信任（trusted=True）；
+    - 已被用户取消信任的设备再次登录 → 重新信任（trusted=True）。
+    否则用户在「取消信任」后会永远被 access-token 闸门挡在门外、无法重新登录
+    （见 IsAuthenticatedAndTrusted）。取消信任只应逼用户「重新登录一次」，而非
+    「永远登不进来」——重登成功即视为已重新验证。
     """
     obj, created = TrustedDevice.objects.update_or_create(
         user=user,
@@ -111,6 +118,11 @@ def _ensure_trusted_device(user: "Any", parsed: dict[str, str], location: str) -
         obj.trusted = True
         obj.first_trusted_at = timezone.now()
         obj.save(update_fields=["name", "trusted", "first_trusted_at"])
+    elif not obj.trusted:
+        # 重新验证：取消信任的设备再次成功登录 → 恢复信任（§9.3）。
+        obj.trusted = True
+        obj.first_trusted_at = timezone.now()
+        obj.save(update_fields=["trusted", "first_trusted_at"])
 
 
 def record_login_success(user: "Any", *, jti: str, request: Any | None = None) -> None:

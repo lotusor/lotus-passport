@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 
 from passport.jwt import issue_tokens
 from passport.models import PassportUser, Session, TrustedDevice
-from passport.auth_events import parse_user_agent
+from passport.auth_events import parse_user_agent, record_login_success
 
 # 固定 UA，保证「刷新请求的设备指纹」与「TrustedDevice 记录」可精确匹配。
 DEVICE_UA = (
@@ -213,3 +213,48 @@ def test_logout_does_not_require_trust():
     client.defaults["HTTP_USER_AGENT"] = DEVICE_UA
     resp = client.post("/api/v1/logout/", {}, format="json")
     assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_untrust_then_relogin_retrusts_device():
+    """§9.3 regression: a device the user untrusted must become trusted again
+    after a *successful* re-login — a login IS the re-verification step. Without
+    this, the access-token gate would 401 the user forever and they could never
+    re-establish the session (observed: '取消信任后当前设备无法重新登录').
+    """
+    import types
+
+    user = PassportUser.objects.create(email="relgoin@x.com")  # conftest auto-trusts
+    dev = TrustedDevice.objects.get(user=user)  # the auto-created trusted row
+    tokens = issue_tokens(user)
+    Session.objects.create(
+        user=user,
+        jti=tokens["jti"],
+        device_type=dev.device_type,
+        os=dev.os,
+        browser=dev.browser,
+    )
+
+    client, _ = _auth_client(user)
+    r = client.patch(f"/api/v1/devices/{dev.id}/", {"trusted": False}, format="json")
+    assert r.status_code == 200
+    assert TrustedDevice.objects.get(id=dev.id).trusted is False
+    # untrust already logged the device out
+    assert not Session.objects.filter(jti=tokens["jti"]).exists()
+
+    # simulate a successful re-login on the same UA
+    req = types.SimpleNamespace()
+    req.META = {
+        "HTTP_USER_AGENT": DEVICE_UA,
+        "HTTP_X_FORWARDED_FOR": "1.1.1.1",
+        "REMOTE_ADDR": "1.1.1.1",
+    }
+    new_tokens = issue_tokens(user)
+    record_login_success(user, jti=new_tokens["jti"], request=req)
+
+    # device is trusted again and the gate lets the new token through
+    assert TrustedDevice.objects.get(id=dev.id).trusted is True
+    c2 = APIClient()
+    c2.credentials(HTTP_AUTHORIZATION=f"Bearer {new_tokens['access']}")
+    c2.defaults["HTTP_USER_AGENT"] = DEVICE_UA
+    assert c2.get("/api/v1/userinfo/").status_code == 200
