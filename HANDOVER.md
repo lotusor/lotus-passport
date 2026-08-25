@@ -14,7 +14,7 @@
 > - **后端已解冻（2026-08-06 22:39）**：用户决策反转——前端页面所需功能（基本资料 / 授权设备 / 账户安全 / OAuth 绑定 / 开发者应用 / 注销）属于**刚性需求**，对应的后端能力必须真正可用。原"后端冻结、只做前端"决定作废。后端架构基础（OAuth 三方可信登录 + `redirect_uri` 白名单、RS256/JWKS、服务端 token 吊销、密钥轮换、依赖锁、CI、Docker/compose/nginx、`check --deploy` 0 问题）仍视为**稳定基座**，在其之上按 **§9** 逐项建设账户管理能力。
 > - **实施策略**：按 §9 分阶段落地，每段均补 DRF 视图 + 序列化器 + 迁移 + 测试，并用 `pytest` / `check --deploy` 复验，确保"改得动、测得绿"。§9 已从"规划 Backlog"转为**实施清单（含进度状态）**。
 > - **范围边界（已确认）**：passport 仅扩身份相关字段（`username`/`phone`/`bio`），**school / roles 仍归接入方（如 algo_rank）**，不进 passport 模型；账号注销需级联 + 审计留痕。详见 §9.0。
-> - **外部依赖约束**：GitHub OAuth 凭据可公开自助申请、无上线前置门槛 → 本轮实现绑定接口（§9.2）打通完整链路；**微信/QQ OAuth 因腾讯开放平台管理要求，须网站正式上线并登记可信域名后方可申请/配置回调，当前阶段暂缓**（仅留配置位，见 §2.4/§9.2）；邮件/短信网关未接入 → 通知类（密码重置/异地告警）先留接口与降级路径。
+> - **外部依赖约束**：GitHub OAuth 凭据可公开自助申请、无上线前置门槛 → 本轮实现绑定接口（§9.2）打通完整链路；**QQ OAuth 已完成**（手写 QQProvider，凭证已配好、可真实登录）；**微信 OAuth 因腾讯开放平台管理要求，须网站正式上线并登记可信域名后方可申请/配置回调，当前阶段暂缓**（仅留配置位，见 §2.4/§9.2）；邮件/短信网关未接入 → 通知类（密码重置/异地告警）先留接口与降级路径。
 > - **预留项**：Next 14.2.35 的 2 个 high 公告仍为已知可接受风险（§7.7）。
 > - 前端模块的详细状态、待办、技术栈与代码结构见 **§8**；后端待建能力清单与进度见 **§9**。
 
@@ -357,7 +357,7 @@ docker compose logs -f web
 | `DATABASE_URL` | `postgres://lotus_passport:CHANGE_ME_DB_PASSWORD@127.0.0.1:5432/lotus_passport` |
 | `REDIS_URL` | `redis://:CHANGE_ME_REDIS_PASSWORD@127.0.0.1:6379/0` |
 | RS256 密钥 | `keys/`（manifest + private/public pem），entrypoint 首次启动生成；**务必离线备份**，丢失 = 所有已签发 JWT 失效 |
-| 微信 / QQ OAuth | 暂缓（先不做微信）；GitHub 凭据已配置于 `.env.production` |
+| 微信 / QQ OAuth | GitHub ✅ 已配置、QQ ✅ 已完成（凭证已配好）；微信暂缓（待腾讯开放平台可信域名登记） |
 
 **部署模式**：服务器已裸机部署 PG + Redis，`docker-compose.yml` 仅起 `web` + `nginx`，`web` 经 `.env.production` 的 `127.0.0.1` 连本机实例，不再起 db/redis 容器。
 
@@ -1004,7 +1004,7 @@ lib/
 > | 条目 | 前端对应 | 状态 |
 > | --- | --- | --- |
 > | §9.1 基本资料 | `profile/basic` | ✅ 已完成（GET/PATCH /profile/ + userinfo 扩字段，加密 phone） |
-> | §9.2 OAuth 绑定/解绑 | `profile/oauth` | 🟡 部分推进：GitHub ✅ 已完成（绑定/解绑/列表 + 冲突与解绑保护，见 §9.2）；微信/QQ ⬜ 暂缓（腾讯要求正式上线后实施，见 §2.4/§9.2） |
+> | §9.2 OAuth 绑定/解绑 | `profile/oauth` | 🟡 部分推进：GitHub ✅ 已完成（绑定/解绑/列表 + 冲突与解绑保护，见 §9.2）；QQ ✅ 已完成（登录与回调可用）；微信 ⬜ 暂缓（腾讯要求正式上线后实施，见 §2.4/§9.2） |
 > | §9.3 授权设备 | `profile/devices` | ✅ 已完成（GET /devices/ + PATCH/DELETE /devices/&lt;id&gt;/） |
 > | §9.4a 密码 | security | ✅ 已完成（`POST /api/v1/login/` 密码登录 + `GET/POST /security/password/`（change，OAuth-only 首次设密免 step-up，改密吊销其它会话）；reset 依赖 §9.7 留待后续） |
 > | §9.4b Passkey | security | 🟡 部分（`/security/passkeys/` 列表 + `/webauthn/options/auth`、`/verify/`、`DELETE /webauthn/<id>/` 仍可用；注册端点 `/webauthn/options/register`、`/register/` 自 2026-08-08 起因安全考量返回 501「当前功能待开发」；`Passkey` 模型 + 0004 迁移；py_webauthn 3.0.0，纯本地无外部服务依赖） |
@@ -1049,7 +1049,7 @@ lib/
 | 数据结构 | 复用 `OAuthAccount`；`bind_existing_user()` 仅挂到当前登录用户、绝不新建；冲突（该 provider 身份已属于他人）返回 409 防账号劫持 |
 | 业务逻辑 | ① `bind`：校验凭据 → 存 `link_mode=True` + `passport_id` 的 state → 返回 `authorize_url`；② 浏览器回跳 `/callback/` → 检测到 `link_mode` → 按 `passport_id` 解析目标用户 → `bind_existing_user` 关联（已绑本人则刷新 token，幂等）；③ 回跳前端 `?bound=<provider>&status=success`（无 `redirect_uri` 时返回 JSON）④ 解绑前校验残留登录手段（密码 / Passkey / 其它 OAuth 任一即可；TOTP 不算独立登录方式），全无则 409 |
 | 权限控制 | 仅本人（Bearer）；`link_mode` 回调虽匿名到达，但目标用户由 state 内 `passport_id` 决定，无法被第三者冒用 |
-| 第三方集成（决策） | **GitHub OAuth：✅ 本轮已完成**（`GITHUB_CLIENT_ID=Ov23liFazgN9Q6P73HAT` 已申请，secret 由运维填 `.env`；提供程序码走授权码流程，最小范围 `read:user user:email`）；**微信 / QQ OAuth：⬜ 暂缓**——腾讯开放平台管理要求网站正式上线、登记可信域名后方可申请并配置回调，当前阶段不实现后端接口，仅保留配置位（`WECHAT_CLIENT_ID/_SECRET`、`QQ_CLIENT_ID/_SECRET`），待通行证服务正式上线（`passport.eacm.cn`，见 §2.4）后再实施 |
+| 第三方集成（决策） | **GitHub OAuth：✅ 本轮已完成**（`GITHUB_CLIENT_ID=Ov23liFazgN9Q6P73HAT` 已申请，secret 由运维填 `.env`；提供程序码走授权码流程，最小范围 `read:user user:email`）；**QQ OAuth：✅ 已完成**（手写 `QQProvider` 处理 `urlencoded` 响应 + `openid` 在 `me` 接口的非标流程，凭证已配好、可真实登录）；**微信 OAuth：⬜ 暂缓**——腾讯开放平台管理要求网站正式上线、登记可信域名后方可申请并配置回调，仅保留配置位（`WECHAT_CLIENT_ID/_SECRET`） |
 | 关键决策 | 2026-08-07 与用户确认：① 微信/QQ 因平台门槛暂缓，避免"写了接口却无法联调/上线"的空转；② 先完成 GitHub 接口，验证 `providers.py` + `OAuthAccount` + 绑定/解绑端到端，再复制适配到微信/QQ |
 
 ### 9.3 授权设备（Authorized Devices）
@@ -1156,7 +1156,7 @@ lib/
 | 集成 | 当前 | 待办 |
 | --- | --- | --- |
 | GitHub OAuth | 凭据可公开自助申请（无"正式上线"前置门槛） | 本轮实现 bind 链路（§9.2）作为三家 provider 适配样板 |
-| 微信 / QQ OAuth | 配置位预留（`WECHAT_CLIENT_ID/_SECRET`、`QQ_CLIENT_ID/_SECRET`），**暂缓** | 腾讯开放平台要求网站正式上线 + 登记可信域名后方可申请；待 `passport.eacm.cn` 上线后实施（§2.4 / §9.2） |
+| 微信 / QQ OAuth | QQ ✅ 已完成（凭证已配好、可真实登录）；微信配置位预留（`WECHAT_CLIENT_ID/_SECRET`），**暂缓** | QQ 手写 Provider 已打通；微信需腾讯开放平台登记可信域名后方可申请（§2.4 / §9.2） |
 | 邮件服务（SMTP/SES） | 无 | 密码重置、验证、告警（§9.4a/§9.7） |
 | 短信网关 | 无 | phone 验证（如需） |
 | IP 地理库 | 无 | 登录历史地域（§9.4e，可选） |
@@ -1177,7 +1177,7 @@ lib/
 - 🟡 §9.4b Passkey：部分实现（引入 `py_webauthn` 3.0.0；`Passkey` 模型 + 0004 迁移；`/security/passkeys/`、`/webauthn/options/auth`、`/verify/`、`DELETE /webauthn/<id>/` 可用；**注册端点 `/webauthn/options/register`、`/register/` 自 2026-08-08 起因安全考量返回 501「当前功能待开发」**，登录流未集成 Passkey）。前端 `lib/data.ts` 的 `Passkey` 类型语义已对齐 snake_case/ISO，待从 mock 切到真实接口。
 
 **Phase 3（依赖外部凭据 / 网关或设计边界）**
-- §9.2 OAuth 绑定/解绑：**GitHub ✅ 已完成**（接口见 §9.2；GitHub `client_id=Ov23liFazgN9Q6P73HAT` 已申请，secret 填 `.env`）；微信/QQ ⬜ 暂缓（腾讯要求网站正式上线 + 登记可信域名后方可申请，待 `passport.eacm.cn` 上线后实施，配置位已预留）。⚠️ GitHub OAuth App 已建（client_id `Ov23liFazgN9Q6P73HAT`）：**Homepage URL 暂填 `http://localhost:8000`，生产部署须改 `https://passport.eacm.cn`**；client_secret 已取得并写入 `.env`；授权回调须改 `https://passport.eacm.cn/api/v1/oauth/github/callback/`。
+- §9.2 OAuth 绑定/解绑：**GitHub ✅ 已完成**（接口见 §9.2；GitHub `client_id=Ov23liFazgN9Q6P73HAT` 已申请，secret 填 `.env`）；**QQ ✅ 已完成**（手写 Provider + 无尾斜杠回调兼容，凭证已配好）；微信 ⬜ 暂缓（腾讯要求网站正式上线 + 登记可信域名后方可申请，配置位已预留）。⚠️ GitHub OAuth App 已建（client_id `Ov23liFazgN9Q6P73HAT`）：**Homepage URL 暂填 `http://localhost:8000`，生产部署须改 `https://passport.eacm.cn`**；client_secret 已取得并写入 `.env`；授权回调须改 `https://passport.eacm.cn/api/v1/oauth/github/callback/`。
 - §9.5 开发者应用（OAuthClient RP 登记子系统）：完整 CRUD + rotate-secret。
 - ✅ §9.4f 注销账号 🔒：级联删 + 审计留痕（`AccountDeletion`）+ 会话吊销 + step-up，已完成（§9.4f）；通知接入方（§9.7 webhook）待 §9.7 落地。
 - §9.6 审计 / 通知、§9.7 第三方集成（邮件 / 短信网关、IP 地理库）。
@@ -1206,7 +1206,7 @@ export DEBUG=False SECRET_KEY=<32+hex> TOKEN_ENCRYPTION_KEY=<base64-32B> ALLOWED
 
 ### 10.2 优先级缺口清单
 - **P0（上线前必须）**：`DEBUG=False` + 强随机 `SECRET_KEY`/`TOKEN_ENCRYPTION_KEY`；域名与主机（`ALLOWED_HOSTS`/`PASSPORT_RP_ID`/`WEBAUTHN_ORIGINS`/`FRONTEND_SUCCESS_REDIRECT`/`PASSPORT_OAUTH_REDIRECT_BASE` 全部改 `passport.eacm.cn` 体系）；`CORS_ALLOWED_ORIGINS` + `OAUTH_ALLOWED_REDIRECT_URIS` 填真实前端域名；`DATABASE_URL` 用 PostgreSQL；`GITHUB_CLIENT_SECRET` 填 `.env` 并在 GitHub 后台追加生产回调；RS256 密钥由 entrypoint 自动生成并备份 `passport_keys` 卷；`ENABLE_DEV_LOGIN` 关闭；部署 HTTPS 后启 nginx 443 + `SECURE_SSL_REDIRECT=True`（消除 W 系列警告）。详见 `docs/frontend-api-handover.md` §7.1；hCaptcha `HCAPTCHA_SECRET_KEY` 已配 `.env`（CAPTCHA 门 2026-08-09 落地，Site Key 与 Secret 均已配置）。
-- **P1（按设计未实现 / 已去范围）**：**TOTP 2FA（§9.4c）已于 2026-08-07 去范围**（迁移 `0005` 移除字段/模型/端点/测试，见附录 A-13；前端 2FA 入口已去）；微信/QQ OAuth（仅配置位，腾讯要求正式上线后实施）；**✅ §9.4f 账户注销 已完成**（DELETE /profile/）；§9.7 通知网关（密码重置依赖它，当前仅设/改密；注销的接入方通知也待它）；§9.5 开发者应用；前端 `lotus-passport-security` 安全页（密码/Passkey/OAuth 绑定/会话/登录历史/注销/设备）**已切真实接口**；仅 §9.5 开发者应用后端未实现、前端只读（见 §9.5）。
+- **P1（按设计未实现 / 已去范围）**：**TOTP 2FA（§9.4c）已于 2026-08-07 去范围**（迁移 `0005` 移除字段/模型/端点/测试，见附录 A-13；前端 2FA 入口已去）；**QQ OAuth ✅ 已完成（凭证已配好）；微信 OAuth 暂缓**（仅配置位，腾讯要求正式上线后实施）；**✅ §9.4f 账户注销 已完成**（DELETE /profile/）；§9.7 通知网关（密码重置依赖它，当前仅设/改密；注销的接入方通知也待它）；§9.5 开发者应用；前端 `lotus-passport-security` 安全页（密码/Passkey/OAuth 绑定/会话/登录历史/注销/设备）**已切真实接口**；仅 §9.5 开发者应用后端未实现、前端只读（见 §9.5）。
 - **P2（文档一致性）**：~~`README.md` 与 SDK 示例仍写占位域名 `account.emoera.com`，须全局替换为 `passport.eacm.cn`（§2.4）~~ ✅ **已解决（2026-08-09）**：`account.emoera.com` 已在 README / 两个 SDK / `docker-compose.yml` / `nginx.conf` / 前端注释等全文替换为 `passport.eacm.cn`；`email` 只读、验证邮件改邮箱流程未实现；**限流已改身份维度 + 账户锁定（§一，2026-08-08 落地）**，原"IP 粒度未绑定用户维度"已解决。安全加固与 CAPTCHA 的完整方案见 `docs/security-hardening-plan.md` / `docs/captcha-plan.md`（已并入本节）。
 
 ### 10.3 审查覆盖确认（五大维度）
