@@ -62,9 +62,9 @@ from .providers import (
 )
 
 from . import webauthn as wa
-from .ratelimit import OAuthStateStore, AccountLockout, check_rate_limit
+from .ratelimit import OAuthStateStore, PendingConsentStore, AccountLockout, check_rate_limit
 from .captcha import CaptchaVerifier
-from .redirects import is_redirect_uri_allowed
+from .redirects import is_redirect_uri_allowed, is_external_oauth_redirect, resolve_oauth_client, _origin_of
 from .revocation import RevocationStore
 from .auth_events import record_login_failure, record_login_success
 from .security import (
@@ -403,6 +403,22 @@ class OAuthCallbackView(APIView):
                     {"error": {"code": 400, "message": "redirect_uri 不在允许列表中"}},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            # 外部应用接入：先让用户到授权确认页确认「是否授权」，再回跳签发 token。
+            # 首屏登录（redirect_uri 指向护照自己的 SPA）则跳过确认页直接回跳。
+            if is_external_oauth_redirect(frontend):
+                from django.shortcuts import redirect as _redirect
+
+                ticket = PendingConsentStore().save(
+                    redirect_uri=frontend,
+                    access=tokens["access"],
+                    refresh=tokens["refresh"],
+                    token_type=tokens["token_type"],
+                    passport_user_id=tokens["passport_user_id"],
+                    provider=provider,
+                    jti=tokens["jti"],
+                )
+                return _redirect(f"{settings.OAUTH_CONSENT_PAGE_BASE}?ticket={ticket}")
+
             frag = urlencode(
                 {
                     "access_token": tokens["access"],
@@ -433,6 +449,80 @@ class OAuthCallbackView(APIView):
             return PassportUser.objects.get(passport_id=pid)
         except PassportUser.DoesNotExist:
             return None
+
+
+class OAuthConsentView(APIView):
+    """OAuth 授权确认页后端（§外部应用接入）。
+
+    外部应用（如 rank.eacm.cn）经护照完成第三方登录后，护照并不立即把 token 弹回
+    应用，而是把刚签发的 token 暂存为一次性票据，并把浏览器 302 到
+    ``OAUTH_CONSENT_PAGE_BASE?ticket=...``。本视图配合 account.eacm.cn 的
+    ``/oauth/consent`` 页面构成「是否授权」中间页：
+
+    * ``GET  ?ticket=...``  —— 返回申请授权的应用信息（名称 / 权限范围），供页面渲染。
+    * ``POST {ticket, decision}`` —— ``decision=allow`` 时消费票据并以 fragment 回跳
+      应用的 ``redirect_uri``；``decision=deny`` 时回跳应用域并带 ``oauth_error``。
+      页面用原生表单提交触发本端点，后端 302 让**浏览器**真正跳转（fetch 不会跟随
+      跨域 302）。
+    """
+
+    authentication_classes: list = []
+    permission_classes: list = []
+
+    def get(self, request):
+        ticket = request.GET.get("ticket")
+        pending = PendingConsentStore().peek(ticket)
+        if pending is None:
+            return Response(
+                {"error": {"code": 400, "message": "授权请求无效或已过期，请重新发起登录"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        client = resolve_oauth_client(pending["redirect_uri"])
+        return Response(
+            {
+                "app_name": client["name"],
+                "app_origin": client["origin"],
+                "app_logo": client.get("logo", ""),
+                "scopes": client.get("scopes", []),
+                "provider": pending["provider"],
+                "passport_user_id": pending["passport_user_id"],
+            }
+        )
+
+    def post(self, request):
+        if not check_rate_limit(request, *settings.RATE_LIMIT_CALLBACK, scope="oauth-consent"):
+            return Response(
+                {"error": {"code": 429, "message": "请求过于频繁，请稍后再试"}},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        data = request.data or {}
+        ticket = data.get("ticket") or request.GET.get("ticket")
+        decision = data.get("decision")
+        pending = PendingConsentStore().consume(ticket)
+        if pending is None:
+            return Response(
+                {"error": {"code": 400, "message": "授权请求无效或已过期，请重新发起登录"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        redirect_uri = pending["redirect_uri"]
+        if decision != "allow":
+            # 用户拒绝：回跳应用域首页并带错误标记，由应用自行提示。
+            origin = _origin_of(redirect_uri)
+            from django.shortcuts import redirect
+
+            return redirect(f"{origin}/?oauth_error=access_denied")
+
+        frag = urlencode(
+            {
+                "access_token": pending["access"],
+                "token_type": pending["token_type"],
+                "refresh_token": pending["refresh"],
+                "passport_user_id": pending["passport_user_id"],
+            }
+        )
+        from django.shortcuts import redirect
+
+        return redirect(f"{redirect_uri}#{frag}")
 
 
 class OAuthBindView(APIView):

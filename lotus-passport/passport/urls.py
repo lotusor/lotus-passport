@@ -19,6 +19,12 @@ urlpatterns = [
         views.OAuthCallbackView.as_view(),
         name="oauth-callback",
     ),
+    # OAuth 授权确认页后端（§外部应用接入）：GET 取应用信息 / POST 消费票据并回跳。
+    path(
+        "api/v1/oauth/consent/",
+        views.OAuthConsentView.as_view(),
+        name="oauth-consent",
+    ),
     # QQ 互联（腾讯开放平台）回调地址校验器拒绝以 "/" 结尾的 URL，
     # 故额外接受不带尾斜杠的形式：控制台注册用无尾斜杠地址，QQ 回跳也能命中。
     path(

@@ -188,3 +188,68 @@ class OAuthStateStore:
 
     def ttl(self, state: str) -> int:
         return int(self.client.ttl(f"{self.PREFIX}{state}") or 0)
+
+
+class PendingConsentStore:
+    """One-time ticket for the OAuth *authorization-consent* screen (外部应用接入).
+
+    After the passport authenticates a user via a third-party provider on behalf
+    of an *external* integrating app, we don't bounce the token straight back to
+    the app. Instead we stash the just-issued tokens behind a single-use ticket
+    and send the browser to the consent page; only after the user clicks
+    "授权" does :class:`OAuthConsentView` 302 to the app's ``redirect_uri`` with
+    the token in the URL fragment.
+
+    The ticket is single-use (``consume`` deletes it) and TTL-bounded, so a crash
+    or a user walking away leaves nothing sensitive behind.
+    """
+
+    PREFIX = "oauth:consent:"
+    TTL = 600  # 10 min — same window as the OAuth state round-trip
+
+    def __init__(self, client: Any | None = None) -> None:
+        self.client = client or get_redis()
+
+    def save(
+        self,
+        *,
+        redirect_uri: str,
+        access: str,
+        refresh: str,
+        token_type: str,
+        passport_user_id: str,
+        provider: str,
+        jti: str,
+    ) -> str:
+        ticket = uuid.uuid4().hex + uuid.uuid4().hex[:8]
+        payload = json.dumps(
+            {
+                "redirect_uri": redirect_uri,
+                "access": access,
+                "refresh": refresh,
+                "token_type": token_type,
+                "passport_user_id": passport_user_id,
+                "provider": provider,
+                "jti": jti,
+            }
+        )
+        self.client.setex(f"{self.PREFIX}{ticket}", self.TTL, payload)
+        return ticket
+
+    def peek(self, ticket: str | None) -> dict[str, Any] | None:
+        """Read without consuming — used by the consent page's GET render."""
+        if not ticket:
+            return None
+        raw = self.client.get(f"{self.PREFIX}{ticket}")
+        return json.loads(raw) if raw else None
+
+    def consume(self, ticket: str | None) -> dict[str, Any] | None:
+        """Single-use read: returns the payload and deletes the key, or None."""
+        if not ticket:
+            return None
+        key = f"{self.PREFIX}{ticket}"
+        raw = self.client.get(key)
+        if not raw:
+            return None
+        self.client.delete(key)
+        return json.loads(raw)

@@ -70,3 +70,51 @@ def is_redirect_uri_allowed(uri: str) -> bool:
             if uri.rstrip("/") == entry.rstrip("/"):
                 return True
     return False
+
+
+def _origin_of(uri: str) -> str:
+    parsed = urlparse(uri)
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def is_external_oauth_redirect(uri: str) -> bool:
+    """True when ``uri`` points at a *third-party* integrating app (not the
+    passport's own first-party SPA), meaning the OAuth authorization-consent
+    screen should be shown before bouncing the token back.
+
+    First-party origins are the passport SPA / API themselves. In DEBUG we also
+    treat the local dev origins as first-party so the dev login loop stays
+    seamless (the consent screen is a production external-app concern).
+    """
+    origin = _origin_of(uri)
+    first_party = set(getattr(settings, "OAUTH_FIRST_PARTY_ORIGINS", []) or [])
+    if getattr(settings, "DEBUG", False):
+        first_party.update(
+            {
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "http://localhost:8000",
+                "http://127.0.0.1:8000",
+            }
+        )
+    return origin not in first_party
+
+
+def resolve_oauth_client(redirect_uri: str) -> dict:
+    """Map a redirect_uri to display info for the authorization-consent screen.
+
+    Known clients are configured in ``settings.OAUTH_CLIENTS`` keyed by origin.
+    Unknown origins fall back to a generic entry derived from the host.
+    """
+    origin = _origin_of(redirect_uri)
+    clients = getattr(settings, "OAUTH_CLIENTS", {}) or {}
+    if origin in clients:
+        info = dict(clients[origin])
+        info["origin"] = origin
+        return info
+    return {
+        "name": urlparse(redirect_uri).netloc,
+        "origin": origin,
+        "logo": "",
+        "scopes": ["读取你的昵称、头像等基本资料（用于登录该应用）"],
+    }

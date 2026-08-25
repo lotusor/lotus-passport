@@ -44,6 +44,16 @@ export interface OAuthLoginResponse {
   authorize_url: string;
 }
 
+/** 授权确认页所需的应用信息（GET /api/v1/oauth/consent/?ticket=）。 */
+export interface OAuthConsentInfo {
+  app_name: string;
+  app_origin: string;
+  app_logo: string;
+  scopes: string[];
+  provider: string;
+  passport_user_id: string;
+}
+
 export interface OAuthCallbackResponse {
   access: string;
   refresh: string;
@@ -147,6 +157,14 @@ export async function getOAuthLoginUrl(
 ): Promise<OAuthLoginResponse> {
   const qs = redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : "";
   return request(`/api/v1/oauth/${provider}/login/${qs}`);
+}
+
+/**
+ * 取授权确认页所需的应用信息（应用名 / 申请的权限范围）。
+ * 用于外部应用接入时展示「是否授权 xxx 访问你的资料」中间页。
+ */
+export async function getOAuthConsentInfo(ticket: string): Promise<OAuthConsentInfo> {
+  return request(`/api/v1/oauth/consent/?ticket=${encodeURIComponent(ticket)}`);
 }
 
 /**

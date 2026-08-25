@@ -222,6 +222,34 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_HEADERS = ["authorization", "content-type", "x-requested-with"]
 
 # --------------------------------------------------------------------------- #
+# OAuth 授权确认页（外部应用接入时展示的"是否授权"中间页）
+# --------------------------------------------------------------------------- #
+# 护照自己的 SPA / API 归属 first-party：跳回这些域时不弹确认页。
+OAUTH_FIRST_PARTY_ORIGINS = [
+    o.strip()
+    for o in env(
+        "OAUTH_FIRST_PARTY_ORIGINS",
+        "https://account.eacm.cn,https://passport.eacm.cn",
+    ).split(",")
+    if o.strip()
+]
+# 授权确认页（account.eacm.cn 的 Next.js SPA）基址；callback 完成后先 302 到这里。
+OAUTH_CONSENT_PAGE_BASE = env(
+    "OAUTH_CONSENT_PAGE_BASE", "https://account.eacm.cn/oauth/consent"
+)
+# 已知接入方展示信息（按 redirect_uri origin 索引），用于确认页展示应用名与权限范围。
+OAUTH_CLIENTS = {
+    "https://rank.eacm.cn": {
+        "name": "E-algo Rank",
+        "logo": "",
+        "scopes": [
+            "以你的莲花通行证身份登录 E-algo Rank",
+            "读取你的昵称、头像等基本资料",
+        ],
+    },
+}
+
+# --------------------------------------------------------------------------- #
 # DRF
 # --------------------------------------------------------------------------- #
 REST_FRAMEWORK = {
