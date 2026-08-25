@@ -46,7 +46,7 @@ passport 侧已为项目1 预留白名单，直接可用：
 | 公钥 (JWKS) | `GET /.well-known/jwks.json`（另提供 `GET /api/v1/.well-known/jwks.json`） |
 | 用户态 | `GET /api/v1/userinfo/` |
 | 刷新令牌 | `POST /api/v1/token/refresh/` |
-| 第三方登录入口 | `GET /api/v1/oauth/{provider}/login/` |
+| 第三方登录入口 | `GET /api/v1/oauth/{provider}/login/`（返回 **200 JSON** `{"authorize_url": "..."}`，前端 `fetch` 后跳转到该地址，**不是** 302） |
 | 回调 | `GET /api/v1/oauth/{provider}/callback/`（QQ 另接受无尾斜杠形式） |
 | 登出（真实登出，吊销 jti） | `POST /api/v1/logout/` |
 | 健康检查 | `GET /api/v1/health/` |
@@ -73,21 +73,33 @@ passport 侧已为项目1 预留白名单，直接可用：
 2. **JWKS 缓存**：首次从 `https://passport.eacm.cn/.well-known/jwks.json` 拉取公钥，
    按 `kid` 索引缓存并定期刷新；**不要**把公钥写死进代码（passport 换届/轮换会失效）。
 3. **回调地址**：项目1 的 OAuth 回跳填 `https://rank.eacm.cn/<你的路径>`（已在白名单）。
-4. **登录跳转**：把用户引到
-   `https://passport.eacm.cn/api/v1/oauth/{provider}/login/`，
-   passport 完成第三方登录后跳回你的回调；你用返回结果中的 JWT 继续（或调 `/api/v1/userinfo/` 取资料）。
+4. **登录跳转**：前端先 `GET /api/v1/oauth/{provider}/login/?redirect_uri=<cb>`，
+   **取响应 JSON 的 `authorize_url` 再 `window.location.href` 跳转**（该端点返回 200 JSON，
+   不会自己 302）。passport 完成第三方登录后 302 回你的回调并**在 URL fragment 带 JWT**。
+5. **本地端口（dev 备忘）**：同机联调时 passport 占 `8000`、algo_rank 后端占 `8001`
+   （Vite 代理目标用 `VITE_API_TARGET` 指定）；前端 `5173` 的刷新请求跨域打到 passport，
+   passport 的 `CORS_ALLOWED_ORIGINS` 需含 `http://localhost:5173`（dev 仅自动放开 3000）。
+6. **用户解析器（algo_rank 已实现）**：algo_rank 的 `User` 继承 `AbstractUser`，`username`
+   必填；其自定义 `USER_RESOLVER` 用 `passport_user_id`(UUID) 充当 username 并标记无本地密码，
+   解决了 SDK 默认 resolver 缺 `username` 建用户失败的问题。
 
 ---
 
 ## 5. 登录流程（概览）
 
 ```
-项目1 前端 ──(跳转)──> passport /api/v1/oauth/{provider}/login/
-passport    ──(302)──> 第三方 (GitHub/QQ) 授权页
-第三方      ──(回调)──> passport /api/v1/oauth/{provider}/callback/
-passport    ──(302)──> 项目1 回调 (rank.eacm.cn/...) 带 code/state
-项目1       ──(用 JWT / userinfo)──> 建立本地会话
+项目1 前端 ──GET /oauth/{p}/login/?redirect_uri=cb──> passport
+passport    ──200 JSON {authorize_url}──> 项目1 前端
+项目1 前端 ──window.location = authorize_url──> 第三方 (GitHub) 授权页
+第三方      ──(回调)──> passport /oauth/{p}/callback/
+passport    ──302──> 项目1 回调 (rank.eacm.cn/...) 带 JWT 于 URL fragment
+                    （#access_token=...&refresh_token=...&passport_user_id=...）
+项目1       ──解析 fragment 存 token + loadMe──> 建立本地会话（首见用户由 resolver 自动建）
 ```
+
+> ⚠️ 两处易错点（项目1 已按此实现）：
+> 1. 登录端点返回 **200 JSON**，不是 302；前端必须 `fetch` 后取 `authorize_url` 再跳转。
+> 2. 回调的 JWT 在 **URL fragment**（`#...`），不是 query（`?...`）；前端读 `window.location.hash`。
 
 ---
 

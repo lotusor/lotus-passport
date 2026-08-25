@@ -211,6 +211,17 @@ cd ..
    例如本地联调：`http://localhost:8000/api/v1/oauth/github/callback/`；
    生产：`https://passport.eacm.cn/api/v1/oauth/github/callback/`。
 
+> ⚠️ **GitHub OAuth App 只能登记 1 个 callback URL**（能登记多个的是 GitHub App，不是 OAuth App）。
+> 因此**同一个 App 无法同时服务 localhost 与生产**，本地联调会被 GitHub 拦为
+> 「无效重定向 URL / redirect_uri mismatch」。
+> 标准做法是 **dev / prod 各建一个 OAuth App**：dev App 的 callback 填
+> `http://localhost:8000/api/v1/oauth/github/callback/`，其凭据只写进本地 `.env`；
+> 生产服务器 `.env` 用生产 App 凭据。两边代码完全一致，仅凭据与
+> `PASSPORT_OAUTH_REDIRECT_BASE` 不同。
+> 若暂不想动 GitHub 配置，接入方可用 `GET /api/v1/dev/login/`（DEBUG 限定）取真实 RS256 JWT，
+> 按回调 fragment 格式自行回跳，即可跳过第三方授权页联调整条链路
+> （项目1 已内置 `[DEV] 模拟通行证登录` 按钮）。
+
 > 填好凭据后，`GET /api/v1/oauth/<provider>/login/` 会返回 `200` + `authorize_url`；
 > **未填凭据时返回 `400`「尚未配置客户端凭据」**，而不是把用户静默踢到平台吃闭门羹。
 

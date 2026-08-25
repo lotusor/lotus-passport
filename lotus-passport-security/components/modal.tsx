@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { X } from "@/components/icons";
+import { X, Sparkles } from "@/components/icons";
 import { cn } from "@/lib/cn";
 
 export function Modal({
@@ -80,5 +80,38 @@ export function Modal({
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+/* --------------------- ComingSoon (占位提示) --------------------- */
+export function ComingSoonModal({
+  open,
+  onClose,
+  feature,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** 功能名称，如「邮箱验证码登录」「忘记密码」 */
+  feature: string;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={feature}
+      description="该功能暂未开放，敬请期待后续版本。"
+    >
+      <div className="flex flex-col items-center gap-4 py-4 text-center">
+        <span className="grid h-16 w-16 place-items-center rounded-3xl bg-accent-soft text-accent">
+          <Sparkles className="h-8 w-8" />
+        </span>
+        <div>
+          <p className="text-[15px] font-medium text-ink">当前功能开发中</p>
+          <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
+            我们正在完善「{feature}」，上线后你将在第一时间体验到。
+          </p>
+        </div>
+      </div>
+    </Modal>
   );
 }
