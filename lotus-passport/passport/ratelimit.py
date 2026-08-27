@@ -6,7 +6,11 @@ In tests (settings.TESTING) a fakeredis instance is used transparently.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import re
+import secrets
 import time
 import uuid
 from typing import Any
@@ -148,7 +152,13 @@ class AccountLockout:
 
 
 class OAuthStateStore:
-    """Stores the CSRF `state` for the OAuth redirect round-trip (TTL 10 min)."""
+    """Stores the CSRF `state` for the OAuth redirect round-trip (TTL 10 min).
+
+    When the login was initiated with PKCE (RFC 7636), the ``code_challenge``
+    and ``code_challenge_method`` ride along inside the state so the callback
+    can issue a one-time *authorization code* instead of bouncing the tokens
+    themselves through the browser.
+    """
 
     PREFIX = "oauth:state:"
     TTL = 600
@@ -163,6 +173,8 @@ class OAuthStateStore:
         *,
         link_mode: bool = False,
         passport_id: str | None = None,
+        code_challenge: str | None = None,
+        code_challenge_method: str | None = None,
     ) -> str:
         state = uuid.uuid4().hex + uuid.uuid4().hex[:8]
         payload = json.dumps(
@@ -171,6 +183,8 @@ class OAuthStateStore:
                 "redirect_uri": redirect_uri,
                 "link_mode": link_mode,
                 "passport_id": passport_id,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method,
             }
         )
         self.client.setex(f"{self.PREFIX}{state}", self.TTL, payload)
@@ -220,6 +234,8 @@ class PendingConsentStore:
         passport_user_id: str,
         provider: str,
         jti: str,
+        code_challenge: str | None = None,
+        code_challenge_method: str | None = None,
     ) -> str:
         ticket = uuid.uuid4().hex + uuid.uuid4().hex[:8]
         payload = json.dumps(
@@ -231,6 +247,8 @@ class PendingConsentStore:
                 "passport_user_id": passport_user_id,
                 "provider": provider,
                 "jti": jti,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method,
             }
         )
         self.client.setex(f"{self.PREFIX}{ticket}", self.TTL, payload)
@@ -253,3 +271,204 @@ class PendingConsentStore:
             return None
         self.client.delete(key)
         return json.loads(raw)
+
+
+class PasswordResetStore:
+    """One-time tokens for email-based password reset (§9.4a reset).
+
+    ``save(uid)`` mints a random token bound to the user id with a TTL
+    (default 30 min); ``consume(token)`` is single-use — reading it deletes it.
+    Redis down means reset is unavailable (fail-closed for a security flow),
+    surfaced as 503 by the views.
+    """
+
+    PREFIX = "pwreset:"
+    TTL = 1800
+
+    def __init__(self, client: Any | None = None, ttl: int | None = None) -> None:
+        self.client = client or get_redis()
+        self.ttl = ttl if ttl is not None else self.TTL
+
+    def save(self, uid: int) -> str:
+        token = uuid.uuid4().hex + uuid.uuid4().hex[:8]
+        self.client.setex(f"{self.PREFIX}{token}", self.ttl, str(uid))
+        return token
+
+    def consume(self, token: str | None) -> int | None:
+        """Return the user id bound to the token (single-use), or None."""
+        if not token:
+            return None
+        key = f"{self.PREFIX}{token}"
+        raw = self.client.get(key)
+        if not raw:
+            return None
+        self.client.delete(key)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+
+class EmailCodeStore:
+    """One-time 6-digit email verification codes (登录/注册、绑定邮箱、换绑邮箱).
+
+    ``save(email, purpose)`` mints a numeric code bound to (purpose, email)
+    with a TTL of 10 minutes; ``verify(email, purpose, code)`` is single-use
+    and caps wrong attempts at 5 before the code is invalidated (brute-force
+    resistance). Send-frequency throttling lives in the views (60s / email /
+    purpose + hourly cap), reusing :class:`RateLimiter`.
+    """
+
+    PREFIX = "emailcode:"
+    TTL = 600
+    MAX_ATTEMPTS = 5
+    PURPOSES = ("login", "bind", "new", "old")
+
+    def __init__(self, client: Any | None = None) -> None:
+        self.client = client or get_redis()
+
+    def _key(self, email: str, purpose: str) -> str:
+        return f"{self.PREFIX}{purpose}:{email.strip().lower()}"
+
+    def save(self, email: str, purpose: str) -> str:
+        code = f"{secrets.randbelow(1000000):06d}"
+        payload = json.dumps({"code": code, "attempts": 0})
+        self.client.setex(self._key(email, purpose), self.TTL, payload)
+        return code
+
+    def verify(self, email: str, purpose: str, code: str | None) -> bool:
+        """Single-use check; wrong attempts increment until MAX_ATTEMPTS burns it."""
+        if not code or not code.strip():
+            return False
+        key = self._key(email, purpose)
+        raw = self.client.get(key)
+        if not raw:
+            return False
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            self.client.delete(key)
+            return False
+        if str(code).strip() == str(data.get("code")):
+            self.client.delete(key)
+            return True
+        attempts = int(data.get("attempts", 0)) + 1
+        if attempts >= self.MAX_ATTEMPTS:
+            self.client.delete(key)
+        else:
+            self.client.setex(key, self.TTL, json.dumps({"code": data.get("code"), "attempts": attempts}))
+        return False
+
+
+class AuthCodeStore:
+    """One-time *authorization code* for the PKCE flow (RFC 7636 / OAuth 2.1).
+
+    Replaces the legacy ``302 redirect_uri#access_token=...`` fragment handoff
+    (an OAuth2 Implicit-style flow, deprecated by OAuth 2.1 because it puts
+    long-lived tokens — including the refresh token! — into browser history and
+    referrers). With PKCE the callback only bounces a harmless single-use code
+    via the query string; the SPA then exchanges ``{code, code_verifier}`` for
+    the real tokens at ``POST /api/v1/oauth/token/`` over a direct POST that
+    never touches the URL bar.
+
+    The code is single-use (``consume`` deletes it) and short-lived (TTL 120s).
+    """
+
+    PREFIX = "oauth:code:"
+    TTL = 120
+
+    def __init__(self, client: Any | None = None) -> None:
+        self.client = client or get_redis()
+
+    def save(
+        self,
+        *,
+        access: str,
+        refresh: str,
+        token_type: str,
+        passport_user_id: str,
+        code_challenge: str | None,
+        code_challenge_method: str | None,
+    ) -> str:
+        code = uuid.uuid4().hex + uuid.uuid4().hex[:8]
+        payload = json.dumps(
+            {
+                "access": access,
+                "refresh": refresh,
+                "token_type": token_type,
+                "passport_user_id": passport_user_id,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method,
+            }
+        )
+        self.client.setex(f"{self.PREFIX}{code}", self.TTL, payload)
+        return code
+
+    def consume(self, code: str | None) -> dict[str, Any] | None:
+        """Single-use read: returns the token payload and deletes the key."""
+        if not code:
+            return None
+        key = f"{self.PREFIX}{code}"
+        raw = self.client.get(key)
+        if not raw:
+            return None
+        self.client.delete(key)
+        return json.loads(raw)
+
+
+# --------------------------------------------------------------------------- #
+# PKCE (RFC 7636) helpers
+# --------------------------------------------------------------------------- #
+def pkce_s256_challenge(verifier: str) -> str:
+    """BASE64URL(SHA256(verifier)) without padding — the S256 code challenge."""
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def pkce_verify(
+    challenge: str | None,
+    method: str | None,
+    verifier: str | None,
+) -> bool:
+    """True when (verifier, method) matches the stored code_challenge."""
+    if not challenge:
+        return False
+    if not verifier or not isinstance(verifier, str):
+        return False
+    # RFC 7636 §4.1: verifier is 43..128 chars of [A-Za-z0-9-._~].
+    if not (43 <= len(verifier) <= 128):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9\-._~]+", verifier):
+        return False
+    if method in (None, "", "S256", "s256"):
+        return pkce_s256_challenge(verifier) == challenge
+    if method == "plain":
+        return verifier == challenge
+    return False
+
+
+def validate_code_challenge(
+    challenge: str | None,
+    method: str | None,
+) -> tuple[str, str] | None:
+    """Validate a (challenge, method) pair from the login query string.
+
+    Returns a normalized ``(challenge, method)`` tuple — ``("", "")`` means
+    "PKCE not requested" (legacy fragment mode stays available during the
+    migration window) — or ``None`` when the pair is malformed and the login
+    attempt must be rejected. Only S256 (default) and plain are accepted.
+    """
+    if not challenge:
+        return ("", "")
+    if method in (None, ""):
+        method = "S256"
+    if method in ("S256", "s256"):
+        method = "S256"
+    elif method != "plain":
+        return None
+    # RFC 7636 §4.2: challenge is 43..128 chars of [A-Za-z0-9-._~].
+    if not (43 <= len(challenge) <= 128):
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9\-._~]+", challenge):
+        return None
+    return (challenge, method)

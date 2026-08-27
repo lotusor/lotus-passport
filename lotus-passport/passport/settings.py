@@ -55,20 +55,10 @@ def env_bool(key: str, default: bool = False) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# WebAuthn / Passkey (§9.4b)
+# WebAuthn / Passkey (§9.4b) — 已于 2026-08-27 正式砍除。
+# PASSPORT_RP_ID / PASSPORT_RP_NAME / WEBAUTHN_ORIGINS 与 py_webauthn 依赖
+# 一并移除；相关 env 配置若仍存在将被静默忽略。
 # --------------------------------------------------------------------------- #
-# RP = Relying Party. The RP ID must be a suffix of the origin the browser
-# performs the ceremony on. In dev the SPA runs on :3000 and the API on :8000;
-# both are listed so localhost passkeys register/assert against either origin.
-PASSPORT_RP_ID = env("PASSPORT_RP_ID", "localhost")
-PASSPORT_RP_NAME = env("PASSPORT_RP_NAME", "莲花通行证")
-WEBAUTHN_ORIGINS = [
-    o.strip()
-    for o in env(
-        "WEBAUTHN_ORIGINS", "http://localhost:3000,http://localhost:8000"
-    ).split(",")
-    if o.strip()
-]
 
 
 # --------------------------------------------------------------------------- #
@@ -217,7 +207,13 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # --------------------------------------------------------------------------- #
 CORS_ALLOWED_ORIGINS = [o for o in env("CORS_ALLOWED_ORIGINS", "").split(",") if o]
 if DEBUG or TESTING:
-    CORS_ALLOWED_ORIGINS += ["http://localhost:3000", "http://127.0.0.1:3000"]
+    CORS_ALLOWED_ORIGINS += [
+        "http://localhost:3000",  # 本 SPA（dev）
+        "http://127.0.0.1:3000",
+        "http://localhost:5180",  # e-algo rank 前端（dev，PKCE 换令牌直连护照）
+        "http://127.0.0.1:5180",
+        "http://localhost:5173",  # Vite 默认端口（备用）
+    ]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_HEADERS = ["authorization", "content-type", "x-requested-with"]
 
@@ -429,6 +425,34 @@ HCAPTCHA_SECRET_KEY = env("HCAPTCHA_SECRET_KEY", "")
 CAPTCHA_PROVIDER = env("CAPTCHA_PROVIDER", "hcaptcha")
 CAPTCHA_TRIGGER_THRESHOLD = int(env("CAPTCHA_TRIGGER_THRESHOLD", "3"))
 CAPTCHA_ENABLED = bool(HCAPTCHA_SECRET_KEY)
+
+# --------------------------------------------------------------------------- #
+# Email / SMTP — 密码重置邮件（§9.4a reset，2026-08-27 落地）
+#
+# 成本决策：使用免费 SMTP（如 QQ 邮箱授权码 / Resend 免费层 3000 封每月）。
+# 未配置 EMAIL_HOST 时功能整体关闭（reset-request 返回 503 并提示联系管理员），
+# 与 CAPTCHA 同样的「有配置即启用」模式。测试环境用 Django locmem 后端。
+# --------------------------------------------------------------------------- #
+EMAIL_HOST = env("EMAIL_HOST", "")
+EMAIL_PORT = int(env("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+EMAIL_TIMEOUT = int(env("EMAIL_TIMEOUT", "10"))
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "Lotus Passport <no-reply@eacm.cn>")
+if not EMAIL_HOST or TESTING:
+    # 本地/测试：Django 内存后端（不实际发信）。
+    EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+# 「忘记密码」是否可用：有 SMTP 主机即视为启用。
+PASSWORD_RESET_ENABLED = bool(EMAIL_HOST)
+# 重置链接指向的前端页面（account.eacm.cn SPA）。
+PASSWORD_RESET_FRONTEND_URL = env(
+    "PASSWORD_RESET_FRONTEND_URL", "https://account.eacm.cn/login/password/reset"
+)
+# 重置 token 有效期（秒）。
+PASSWORD_RESET_TOKEN_TTL = int(env("PASSWORD_RESET_TOKEN_TTL", "1800"))
 
 LOGIN_URL = "/api/v1/oauth/github/login/"
 LOGIN_REDIRECT_URL = FRONTEND_SUCCESS_REDIRECT

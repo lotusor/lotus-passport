@@ -109,12 +109,22 @@ class PassportTokenBackend(TokenBackend):
         return self._prepare_key(pem)
 
 
-def issue_tokens(user: PassportUser) -> dict[str, Any]:
+def issue_tokens(user: PassportUser, audience: str | None = None) -> dict[str, Any]:
     """Return access + refresh tokens (and the public id) for a user.
 
     A single ``jti`` is stamped on BOTH tokens so that revoking either one
     (via the server-side blacklist) invalidates the whole session. See
     ``passport.revocation``.
+
+    ``audience`` (optional) pins the token to the integrating app that asked
+    for it (derived from the login ``redirect_uri`` origin, e.g.
+    ``https://rank.eacm.cn``). Integrators configure the same value as their
+    SDK ``audience`` so a token issued for one app cannot be replayed against
+    another. Legacy logins without a redirect_uri keep the previous behaviour
+    (no ``aud`` claim). simplejwt copies the claim onto the access token
+    (``aud`` is not in ``no_copy_claims``), so refresh-rotated access tokens
+    keep the audience. Passport's own endpoints do not verify ``aud`` — the
+    claim is consumed by the integrating apps' SDKs.
     """
     refresh = PassportRefreshToken.for_user(user)
     jti = uuid.uuid4().hex
@@ -122,6 +132,8 @@ def issue_tokens(user: PassportUser) -> dict[str, Any]:
     refresh["passport_user_id"] = user.passport_user_id
     refresh["email"] = user.email or ""
     refresh["nickname"] = user.nickname or ""
+    if audience:
+        refresh["aud"] = audience
     access = refresh.access_token
     access["jti"] = jti
     return {

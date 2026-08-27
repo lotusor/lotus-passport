@@ -224,48 +224,6 @@ class LoginEvent(models.Model):
         return f"LoginEvent({self.status} {self.ip} user={self.user_id})"
 
 
-class Passkey(models.Model):
-    """A WebAuthn credential (passkey) bound to a PassportUser (§9.4b).
-
-    Enables phishing-resistant, passwordless login. The public key (COSE/CBOR)
-    is stored; the private key never leaves the user's device. ``credential_id``
-    is globally unique across authenticators, so it is unique here too.
-    """
-
-    user = models.ForeignKey(
-        PassportUser, on_delete=models.CASCADE, related_name="passkeys"
-    )
-    credential_id = models.CharField(max_length=255, unique=True, db_index=True)
-    # COSE public key (CBOR) as hex — never the private key.
-    public_key = models.TextField()
-    sign_count = models.IntegerField(default=0)
-    device_type = models.CharField(max_length=32, blank=True, default="")
-    aaguid = models.CharField(max_length=36, blank=True, default="")
-    transports = models.CharField(max_length=255, blank=True, default="")
-    name = models.CharField(max_length=128, blank=True, default="")
-    device_label = models.CharField(max_length=128, blank=True, default="")
-    last_used_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "passport_passkey"
-        ordering = ("-created_at",)
-
-    def __str__(self) -> str:
-        return f"Passkey({self.name or self.credential_id[:8]} user={self.user_id})"
-
-    def to_dict(self) -> dict:
-        """Serializable shape consumed by the security page (snake_case + ISO)."""
-        return {
-            "id": str(self.id),
-            "name": self.name,
-            "device": self.device_label,
-            "added_at": self.created_at.isoformat(),
-            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
-        }
-
-
 class AccountDeletion(models.Model):
     """Audit trail for account self-deletion (§9.4f).
 

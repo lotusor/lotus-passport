@@ -14,7 +14,6 @@
 asgiref==3.12.1
 Authlib==1.7.2
 certifi==2026.7.22
-cbor2==6.1.4
 cffi==2.1.1
 charset-normalizer==3.4.9
 cryptography==50.0.0
@@ -37,7 +36,6 @@ pyopenssl==26.4.0
 pyotp==2.10.0
 Pillow==12.3.0
 qrcode==8.2
-webauthn==3.0.0
 redis==8.1.0
 requests==2.34.2
 sqlparse==0.5.5

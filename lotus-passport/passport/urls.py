@@ -25,6 +25,12 @@ urlpatterns = [
         views.OAuthConsentView.as_view(),
         name="oauth-consent",
     ),
+    # 授权码 + PKCE 换令牌（OAuth 2.1 风格，替代 fragment 下发）。
+    path(
+        "api/v1/oauth/token/",
+        views.OAuthTokenExchangeView.as_view(),
+        name="oauth-token-exchange",
+    ),
     # QQ 互联（腾讯开放平台）回调地址校验器拒绝以 "/" 结尾的 URL，
     # 故额外接受不带尾斜杠的形式：控制台注册用无尾斜杠地址，QQ 回跳也能命中。
     path(
@@ -82,29 +88,39 @@ urlpatterns = [
         views.PasswordChangeView.as_view(),
         name="password-change",
     ),
-    # Passkeys / WebAuthn (§9.4b)
+    # 密码找回（§9.4a reset）：邮件一次性 token；未配置 SMTP 时整体 503。
     path(
-        "api/v1/security/passkeys/",
-        views.PasskeyListView.as_view(),
-        name="passkey-list",
+        "api/v1/security/password/reset-request/",
+        views.PasswordResetRequestView.as_view(),
+        name="password-reset-request",
     ),
     path(
-        "api/v1/webauthn/options/register/",
-        views.WebAuthnRegisterOptionsView.as_view(),
-        name="wa-options-register",
+        "api/v1/security/password/reset/",
+        views.PasswordResetConfirmView.as_view(),
+        name="password-reset-confirm",
     ),
-    path("api/v1/webauthn/register/", views.WebAuthnRegisterView.as_view(), name="wa-register"),
+    # 邮箱验证码（2026-08-27）：登录即注册 / 首次绑定 / 更改邮箱（双重验证）。
     path(
-        "api/v1/webauthn/options/auth/",
-        views.WebAuthnAuthOptionsView.as_view(),
-        name="wa-options-auth",
+        "api/v1/security/email/send-code/",
+        views.EmailCodeSendView.as_view(),
+        name="email-send-code",
     ),
-    path("api/v1/webauthn/verify/", views.WebAuthnVerifyView.as_view(), name="wa-verify"),
     path(
-        "api/v1/webauthn/<int:pk>/",
-        views.PasskeyDetailView.as_view(),
-        name="passkey-detail",
+        "api/v1/login/email/",
+        views.EmailLoginView.as_view(),
+        name="email-login",
     ),
+    path(
+        "api/v1/security/email/bind/",
+        views.EmailBindView.as_view(),
+        name="email-bind",
+    ),
+    path(
+        "api/v1/security/email/change/",
+        views.EmailChangeView.as_view(),
+        name="email-change",
+    ),
+    # Passkeys / WebAuthn (§9.4b) 已于 2026-08-27 砍除（端点整体移除，404）。
     path(
         "api/v1/.well-known/jwks.json",
         views.jwks_view,

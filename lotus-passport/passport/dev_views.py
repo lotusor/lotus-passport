@@ -25,7 +25,8 @@ from rest_framework.views import APIView
 
 from .jwt import issue_tokens
 from .providers import Identity
-from .redirects import is_redirect_uri_allowed
+from .ratelimit import AuthCodeStore, validate_code_challenge
+from .redirects import is_redirect_uri_allowed, _origin_of
 from .views import link_or_create_user
 from .auth_events import record_login_success
 
@@ -66,6 +67,10 @@ class DevLoginView(APIView):
         provider:     github | wechat | qq   (default: github)
         redirect_uri: if present, 302 back with tokens in the URL fragment,
                       mirroring the real callback flow the SPA already handles.
+        code_challenge / code_challenge_method:
+                      PKCE（RFC 7636）。提供时走「授权码 + PKCE」模式——
+                      只回跳一次性 code，令牌由前端 POST /api/v1/oauth/token/
+                      换取（与真实登录的新模式完全一致）。
     """
 
     authentication_classes: list = []
@@ -80,6 +85,21 @@ class DevLoginView(APIView):
                 {"error": {"code": 400, "message": f"不支持的 OAuth 提供商: {provider}"}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        pair = validate_code_challenge(
+            request.GET.get("code_challenge"),
+            request.GET.get("code_challenge_method"),
+        )
+        if pair is None:
+            return Response(
+                {
+                    "error": {
+                        "code": 400,
+                        "message": "code_challenge / code_challenge_method 参数无效",
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        challenge, challenge_method = pair
 
         identity = Identity(
             provider_user_id=spec["provider_user_id"],
@@ -95,10 +115,10 @@ class DevLoginView(APIView):
             {"access_token": "dev-access-token", "refresh_token": "dev-refresh-token"},
             timezone.now() + timedelta(hours=2),
         )
-        tokens = issue_tokens(user)
+        redirect_uri = request.GET.get("redirect_uri")
+        tokens = issue_tokens(user, audience=(_origin_of(redirect_uri) if redirect_uri else None))
         record_login_success(user, jti=tokens["jti"], request=request)
 
-        redirect_uri = request.GET.get("redirect_uri")
         if redirect_uri:
             # Same allow-list as the real flow — dev logins must not bypass the
             # open-redirect protection. localhost is auto-allowed under DEBUG/TESTING.
@@ -115,6 +135,16 @@ class DevLoginView(APIView):
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            if challenge:
+                code = AuthCodeStore().save(
+                    access=tokens["access"],
+                    refresh=tokens["refresh"],
+                    token_type=tokens["token_type"],
+                    passport_user_id=tokens["passport_user_id"],
+                    code_challenge=challenge,
+                    code_challenge_method=challenge_method,
+                )
+                return redirect(f"{redirect_uri}?code={code}")
             frag = urlencode(
                 {
                     "access_token": tokens["access"],

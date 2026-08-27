@@ -13,9 +13,11 @@ RUN useradd --create-home --uid 10001 appuser
 
 # Install deps first (best layer caching — only reinstalled when the lock changes).
 # requirements.lock.txt pins exact versions for reproducible production builds.
+# pip 走清华镜像源：本机（腾讯云轻量）到 PyPI 官方源的国际带宽受限速，
+# cryptography 等 >4MB 的 wheel 会卡数分钟甚至超时；清华源可全程跑满。
 COPY requirements.lock.txt /app/
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.lock.txt
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple --upgrade pip \
+    && pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.lock.txt
 
 # Copy source. Secrets ({.env,keys/,*.pem,db.*}) are excluded via .dockerignore
 # and are therefore NOT present in the build context — they reach the container

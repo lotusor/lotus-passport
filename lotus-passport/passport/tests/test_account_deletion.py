@@ -7,7 +7,6 @@ from passport.models import (
     AccountDeletion,
     LoginEvent,
     OAuthAccount,
-    Passkey,
     PassportUser,
     Session,
     TrustedDevice,
@@ -38,7 +37,6 @@ def _oauth_only_user(email):
 
 def _seed_related(user):
     OAuthAccount.objects.create(user=user, provider="github", provider_user_id="gh-1")
-    Passkey.objects.create(user=user, credential_id="cred-1", public_key="deadbeef")
     Session.objects.create(user=user, jti="jti-session-1", device="Chrome")
     TrustedDevice.objects.create(user=user, name="laptop")
     LoginEvent.objects.create(user=user, status="success", ip="1.2.3.4")
@@ -98,7 +96,6 @@ def test_delete_cascades_related_and_audits():
 
     assert not PassportUser.objects.filter(pk=user.pk).exists()
     assert not OAuthAccount.objects.filter(user_id=user.pk).exists()
-    assert not Passkey.objects.filter(user_id=user.pk).exists()
     assert not Session.objects.filter(user_id=user.pk).exists()
     assert not TrustedDevice.objects.filter(user_id=user.pk).exists()
     assert not LoginEvent.objects.filter(user_id=user.pk).exists()

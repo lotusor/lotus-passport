@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import io
 import uuid
 from urllib.parse import urlencode
 
 from django.conf import settings
+from django.core.mail import send_mail
 from django.core.files import File
 from django.core.files.storage import default_storage
 from django.db import transaction
@@ -44,11 +46,11 @@ from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
 
 from .jwt import decode_access, issue_tokens
+from . import email_templates
 from .auth_events import parse_user_agent
 from .models import (
     AccountDeletion,
     OAuthAccount,
-    Passkey,
     PassportUser,
     Session,
     TrustedDevice,
@@ -61,8 +63,18 @@ from .providers import (
     is_provider_configured,
 )
 
-from . import webauthn as wa
-from .ratelimit import OAuthStateStore, PendingConsentStore, AccountLockout, check_rate_limit
+from .ratelimit import (
+    AuthCodeStore,
+    EmailCodeStore,
+    OAuthStateStore,
+    PendingConsentStore,
+    AccountLockout,
+    PasswordResetStore,
+    RateLimiter,
+    check_rate_limit,
+    pkce_verify,
+    validate_code_challenge,
+)
 from .captcha import CaptchaVerifier
 from .redirects import is_redirect_uri_allowed, is_external_oauth_redirect, resolve_oauth_client, _origin_of
 from .revocation import RevocationStore
@@ -223,13 +235,10 @@ def bind_existing_user(user, identity, provider: str, raw_token: dict, expires_a
 def _user_retains_login_method(user, removing_provider: str) -> bool:
     """True if `user` would still be able to log in after dropping `removing_provider`.
 
-    A user must keep at least one primary login method: a usable password, a
-    Passkey, or another linked OAuth account. TOTP 2FA is NOT counted — it is
-    step-up on top of a password and cannot log in by itself.
+    A user must keep at least one primary login method: a usable password or
+    another linked OAuth account. (Passkey 已于 2026-08-27 砍除，不再计入。)
     """
     if user.has_usable_password():
-        return True
-    if getattr(user, "passkeys", None) and user.passkeys.exists():
         return True
     if user.oauth_accounts.exclude(provider=removing_provider).exists():
         return True
@@ -283,7 +292,31 @@ class OAuthLoginView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        state = OAuthStateStore().save(provider, redirect_uri)
+        # PKCE（RFC 7636）：带 code_challenge 的登录走「授权码 + PKCE」模式，
+        # 回调只回跳一次性 code，令牌由前端用 code + code_verifier 换取
+        # （POST /api/v1/oauth/token/），不再经 URL fragment 下发。
+        # 不带 code_challenge 的旧前端继续走 fragment 模式（过渡兼容）。
+        pair = validate_code_challenge(
+            request.GET.get("code_challenge"),
+            request.GET.get("code_challenge_method"),
+        )
+        if pair is None:
+            return Response(
+                {
+                    "error": {
+                        "code": 400,
+                        "message": "code_challenge / code_challenge_method 参数无效（S256，43-128 字符）",
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        challenge, challenge_method = pair
+        state = OAuthStateStore().save(
+            provider,
+            redirect_uri,
+            code_challenge=challenge or None,
+            code_challenge_method=challenge_method or None,
+        )
         return JsonResponse(
             {"authorize_url": prov.get_authorize_url(state)}, status=200
         )
@@ -390,13 +423,16 @@ class OAuthCallbackView(APIView):
 
         # ---- normal login / signup mode ---------------------------------- #
         user = link_or_create_user(identity, provider, raw_token, expires_at)
-        tokens = issue_tokens(user)
+        # aud 绑定到发起登录的应用（redirect_uri origin），接入方 SDK 配同名
+        # audience 即可实现「为 A 应用签发的令牌不能在 B 应用重放」。
+        frontend = stored.get("redirect_uri") or ""
+        audience = _origin_of(frontend) if frontend else None
+        tokens = issue_tokens(user, audience=audience)
         record_login_success(user, jti=tokens["jti"], request=request)
 
         # Use ONLY the redirect_uri stored in the validated OAuth state — never a
         # redirect_uri supplied directly on the callback (that would reopen the
         # open-redirect hole). Re-checked here as defence in depth.
-        frontend = stored.get("redirect_uri") or ""
         if frontend and request.GET.get("response_mode") != "json":
             if not is_redirect_uri_allowed(frontend):
                 return Response(
@@ -416,9 +452,27 @@ class OAuthCallbackView(APIView):
                     passport_user_id=tokens["passport_user_id"],
                     provider=provider,
                     jti=tokens["jti"],
+                    code_challenge=stored.get("code_challenge"),
+                    code_challenge_method=stored.get("code_challenge_method"),
                 )
                 return _redirect(f"{settings.OAUTH_CONSENT_PAGE_BASE}?ticket={ticket}")
 
+            from django.shortcuts import redirect
+
+            # PKCE 模式：只回跳一次性授权码（query 参数），令牌由前端
+            # POST /api/v1/oauth/token/ 换取，杜绝令牌进浏览器历史/Referrer。
+            if stored.get("code_challenge"):
+                code = AuthCodeStore().save(
+                    access=tokens["access"],
+                    refresh=tokens["refresh"],
+                    token_type=tokens["token_type"],
+                    passport_user_id=tokens["passport_user_id"],
+                    code_challenge=stored.get("code_challenge"),
+                    code_challenge_method=stored.get("code_challenge_method"),
+                )
+                return redirect(f"{frontend}?code={code}")
+
+            # 旧 fragment 模式（过渡兼容，待接入方全部升级 PKCE 后移除）。
             frag = urlencode(
                 {
                     "access_token": tokens["access"],
@@ -427,8 +481,6 @@ class OAuthCallbackView(APIView):
                     "passport_user_id": tokens["passport_user_id"],
                 }
             )
-            from django.shortcuts import redirect
-
             return redirect(f"{frontend}#{frag}")
 
         return Response(tokens, status=status.HTTP_200_OK)
@@ -512,6 +564,22 @@ class OAuthConsentView(APIView):
 
             return redirect(f"{origin}/?oauth_error=access_denied")
 
+        from django.shortcuts import redirect
+
+        # PKCE 模式：只回跳一次性授权码；令牌由应用前端拿 code +
+        # code_verifier 到 POST /api/v1/oauth/token/ 换取。
+        if pending.get("code_challenge"):
+            code = AuthCodeStore().save(
+                access=pending["access"],
+                refresh=pending["refresh"],
+                token_type=pending["token_type"],
+                passport_user_id=pending["passport_user_id"],
+                code_challenge=pending.get("code_challenge"),
+                code_challenge_method=pending.get("code_challenge_method"),
+            )
+            return redirect(f"{redirect_uri}?code={code}")
+
+        # 旧 fragment 模式（过渡兼容）。
         frag = urlencode(
             {
                 "access_token": pending["access"],
@@ -520,9 +588,55 @@ class OAuthConsentView(APIView):
                 "passport_user_id": pending["passport_user_id"],
             }
         )
-        from django.shortcuts import redirect
-
         return redirect(f"{redirect_uri}#{frag}")
+
+
+class OAuthTokenExchangeView(APIView):
+    """授权码 + PKCE 换令牌（OAuth 2.1 风格，替代 fragment 下发）。
+
+    ``POST /api/v1/oauth/token/  {code, code_verifier}``
+
+    授权码由登录回调（或授权确认页）生成、Redis 单次消费、TTL 120s。
+    PKCE 校验失败/码无效一律 400，不区分原因（避免给攻击者探测面）。
+    """
+
+    authentication_classes: list = []
+    permission_classes: list = []
+
+    def post(self, request):
+        if not check_rate_limit(request, *settings.RATE_LIMIT_CALLBACK, scope="oauth-token"):
+            return Response(
+                {"error": {"code": 429, "message": "请求过于频繁，请稍后再试"}},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        data = request.data or {}
+        code = (data.get("code") or "").strip()
+        verifier = (data.get("code_verifier") or "").strip()
+        if not code:
+            return Response(
+                {"error": {"code": 400, "message": "缺少 code 参数"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        payload = AuthCodeStore().consume(code)
+        if payload is None:
+            return Response(
+                {"error": {"code": 400, "message": "授权码无效或已过期，请重新登录"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not pkce_verify(payload.get("code_challenge"), payload.get("code_challenge_method"), verifier):
+            return Response(
+                {"error": {"code": 400, "message": "PKCE 校验失败，请重新发起登录"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {
+                "access": payload["access"],
+                "refresh": payload["refresh"],
+                "token_type": payload["token_type"],
+                "passport_user_id": payload["passport_user_id"],
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class OAuthBindView(APIView):
@@ -603,8 +717,8 @@ class OAuthBindView(APIView):
 class OAuthUnbindView(APIView):
     """Remove a linked OAuth provider from the CURRENT user (§9.2).
 
-    Refuses to leave the account with no login method (password / Passkey /
-    another OAuth account). TOTP alone does not count as a standalone method.
+    Refuses to leave the account with no login method (password / another
+    OAuth account). Passkey 已砍除、TOTP 已去范围，均不计入。
     """
 
     permission_classes = [IsAuthenticatedAndTrusted]
@@ -921,7 +1035,6 @@ def _delete_user_account(user: PassportUser, request) -> None:
     _remove_avatar_file(user.avatar)
     user.oauth_accounts.all().delete()
     user.trusted_devices.all().delete()
-    user.passkeys.all().delete()
     user.login_events.all().delete()
     user.sessions.all().delete()
 
@@ -1429,90 +1542,518 @@ class PasswordChangeView(APIView):
 
 
 # --------------------------------------------------------------------------- #
-# Passkeys / WebAuthn (§9.4b)
+# Password reset via email (§9.4a reset，2026-08-27)
+#
+# 零成本方案：免费 SMTP（QQ 邮箱授权码 / Resend 免费层）+ Redis 一次性 token。
+# 未配置 EMAIL_HOST 时整体 503（诚实报错，不假装已发送）；已配置时对
+# 存在/不存在的 identifier 统一返回 200（防账户枚举）。
 # --------------------------------------------------------------------------- #
-class PasskeyListView(APIView):
-    """List the user's registered passkeys (security page)."""
-
-    permission_classes = [IsAuthenticatedAndTrusted]
-
-    def get(self, request):
-        items = Passkey.objects.filter(user=request.user).order_by("-created_at")
-        return Response({"passkeys": [pk.to_dict() for pk in items]})
-
-
-class WebAuthnRegisterOptionsView(APIView):
-    """Step 1 of registration: intentionally disabled (§9.4b 当前功能待开发)."""
-
-    permission_classes = [IsAuthenticatedAndTrusted]
-
-    def post(self, request):
-        return Response(
-            {"error": {"code": 501, "message": "当前功能待开发"}},
-            status=501,
-        )
+def _resolve_identifier(identifier: str) -> "PassportUser | None":
+    """Resolve email OR username to a user — mirrors PasswordLoginView."""
+    if not identifier:
+        return None
+    if "@" in identifier:
+        return PassportUser.objects.filter(email__iexact=identifier).first()
+    return PassportUser.objects.filter(username=identifier).first()
 
 
-class WebAuthnRegisterView(APIView):
-    """Step 2 of registration: intentionally disabled (§9.4b 当前功能待开发)."""
+class PasswordResetRequestView(APIView):
+    """``POST /api/v1/security/password/reset-request/  {identifier}``
 
-    permission_classes = [IsAuthenticatedAndTrusted]
+    Sends a one-time reset link (30 min TTL) when the account exists and has
+    an email. Always answers 200 with a generic message so the endpoint cannot
+    be used to enumerate accounts; 503 when SMTP is not configured.
+    """
+
+    authentication_classes: list = []
+    permission_classes: list = []
 
     def post(self, request):
-        return Response(
-            {"error": {"code": 501, "message": "当前功能待开发"}},
-            status=501,
-        )
-
-
-class WebAuthnAuthOptionsView(APIView):
-    """Step 1 of passwordless login: return assertion options + state token."""
-
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        options_json, state = wa.build_authentication_options()
-        return Response({"options": json.loads(options_json), "state": state})
-
-
-class WebAuthnVerifyView(APIView):
-    """Step 2 of passwordless login: verify assertion, issue JWT."""
-
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        raw = request.data.get("response")
-        state = request.data.get("state")
-        if not raw or not state:
+        identifier = (request.data.get("identifier") or "").strip()
+        if not check_rate_limit(
+            request, *settings.RATE_LIMIT_LOGIN, scope="pw-reset", identifier=identifier or None
+        ):
             return Response(
-                {"error": {"code": 400, "message": "缺少 response 或 state"}},
-                status=400,
+                {"error": {"code": 429, "message": "请求过于频繁，请稍后再试"}},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        if not check_rate_limit(request, *settings.RATE_LIMIT_GLOBAL_IP, scope="ip-coarse"):
+            return Response(
+                {"error": {"code": 429, "message": "请求过于频繁，请稍后再试"}},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        if not settings.PASSWORD_RESET_ENABLED:
+            return Response(
+                {
+                    "error": {
+                        "code": 503,
+                        "message": (
+                            "邮件服务未配置，暂时无法自助找回密码。"
+                            "已绑定 GitHub/QQ 的用户可直接用第三方登录后在账户安全页重设密码。"
+                        ),
+                    }
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        user = _resolve_identifier(identifier)
+        sent = False
+        if user is not None and user.email:
+            token = PasswordResetStore(ttl=settings.PASSWORD_RESET_TOKEN_TTL).save(user.pk)
+            link = f"{settings.PASSWORD_RESET_FRONTEND_URL}?token={token}"
+            minutes = settings.PASSWORD_RESET_TOKEN_TTL // 60
+            html, text = email_templates.link_email(
+                "重置你的密码",
+                link,
+                "重置密码",
+                "你（或他人）刚刚请求重置莲花通行证密码。",
+                minutes=minutes,
+            )
+            try:
+                send_mail(
+                    subject="【莲花通行证】重置你的密码",
+                    message=text,
+                    html_message=html,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+                sent = True
+            except Exception:  # noqa: BLE001 — SMTP 故障不向调用方暴露细节
+                sent = False
+
+        # 防枚举：存在/不存在/发送失败 一律同一句 200 文案。
+        return Response(
+            {
+                "detail": "如果该账户存在且绑定了邮箱，重置邮件已发送，请注意查收（含垃圾邮件箱）。",
+                "sent": sent,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    """``POST /api/v1/security/password/reset/  {token, new_password}``
+
+    Consumes the one-time token, sets the new password and revokes EVERY
+    session (a reset usually means the old password was compromised).
+    """
+
+    authentication_classes: list = []
+    permission_classes: list = []
+
+    def post(self, request):
+        token = (request.data.get("token") or "").strip()
+        new_password = str(request.data.get("new_password") or "")
+        if not check_rate_limit(request, *settings.RATE_LIMIT_GLOBAL_IP, scope="ip-coarse"):
+            return Response(
+                {"error": {"code": 429, "message": "请求过于频繁，请稍后再试"}},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        if not token:
+            return Response(
+                {"error": {"code": 400, "message": "缺少 token 参数"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        uid = PasswordResetStore(ttl=settings.PASSWORD_RESET_TOKEN_TTL).consume(token)
+        if uid is None:
+            return Response(
+                {"error": {"code": 400, "message": "重置链接无效或已过期，请重新发起找回密码"}},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            user = wa.verify_authentication(raw, state)
-        except wa.WebAuthnError as exc:
+            user = PassportUser.objects.get(pk=uid)
+        except PassportUser.DoesNotExist:
             return Response(
-                {"error": {"code": exc.status_code, "message": str(exc)}},
-                status=exc.status_code,
+                {"error": {"code": 400, "message": "重置链接无效或已过期，请重新发起找回密码"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        err = validate_new_password(new_password, user)
+        if err:
+            return Response(
+                {"error": {"code": 400, "message": err}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.set_password(new_password)
+        user.password_changed_at = timezone.now()
+        user.save()
+        # 重置成功 = 旧密码视为已泄露：吊销该用户全部会话（含离线 jti 黑名单）。
+        for sess in list(Session.objects.filter(user=user)):
+            _revoke_session(sess)
+        return Response(
+            {"detail": "密码已重置，请使用新密码重新登录"},
+            status=status.HTTP_200_OK,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Email verification codes (2026-08-27)：登录即注册 / 首次绑定邮箱 / 更改邮箱
+#
+# 验证码收件箱语义（与用户两轮确认，最终规则：**新邮箱必须独立验证**）：
+#   * 登录/注册（purpose=login）：码发给登录用邮箱本身；
+#   * 首次绑定（purpose=bind）：码发给**目标新邮箱**（一重验证：邮箱所有权）；
+#   * 更改邮箱（双重验证，两码都通过才换绑）：
+#       - purpose=new：码发给**新邮箱**（证明“你拥有新邮箱”）；
+#       - purpose=old：码发给**旧邮箱**（证明“你是账号主人”）；
+# 所有码均为 6 位数字、10 分钟有效、单次消费、错 5 次作废（EmailCodeStore）。
+# 发送频率：60s / 邮箱 / purpose + 10 次 / 小时（防轰炸），未配 SMTP 时整体 503。
+# --------------------------------------------------------------------------- #
+# 各 purpose 的邮件文案（subject, 场景说明行）。验证码本身由模板渲染。
+_EMAIL_CODE_COPY = {
+    "login": ("你的莲花通行证登录验证码", "你正在进行邮箱验证码登录"),
+    "bind": ("绑定你的莲花通行证邮箱", "你正在为莲花通行证账户绑定此邮箱"),
+    "new": ("验证你的新邮箱", "你正在将莲花通行证账户邮箱更改为此邮箱"),
+    "old": ("确认更改莲花通行证邮箱", "你正在更改莲花通行证账户邮箱，请确认是本人操作"),
+}
+
+
+def _send_email_code(request, email: str, purpose: str) -> tuple[bool, str]:
+    """发送验证码邮件（带频率限制，HTML 模板美化）。返回 (ok, error_message)。"""
+    if not settings.PASSWORD_RESET_ENABLED:  # 同一开关：EMAIL_HOST 未配置
+        return False, "邮件服务未配置，暂时无法发送验证码"
+    # 频率：同邮箱同 purpose 60s 一次
+    if not RateLimiter().is_allowed(f"emailcode:send:{purpose}:{email.lower()}", 1, 60):
+        return False, "发送过于频繁，请 1 分钟后再试"
+    # 频率：同邮箱每小时最多 10 条（跨 purpose 合计）
+    if not RateLimiter().is_allowed(f"emailcode:hourly:{email.lower()}", 10, 3600):
+        return False, "该邮箱发送次数已达每小时上限，请稍后再试"
+    code = EmailCodeStore().save(email, purpose)
+    subject, purpose_line = _EMAIL_CODE_COPY[purpose]
+    html, text = email_templates.code_email(subject, code, purpose_line)
+    try:
+        send_mail(
+            subject=f"【莲花通行证】{subject}",
+            message=text,
+            html_message=html,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+            fail_silently=False,
+        )
+    except Exception:  # noqa: BLE001 — SMTP 故障不暴露细节
+        return False, "邮件发送失败，请稍后重试"
+    return True, ""
+
+
+def _valid_new_email(email: str | None) -> str | None:
+    """校验邮箱格式；返回规范化邮箱或 None。"""
+    if not email:
+        return None
+    email = email.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        return None
+    return email
+
+
+class EmailCodeSendView(APIView):
+    """``POST /api/v1/security/email/send-code/  {email, purpose}``
+
+    purpose:
+      * ``login``（公开）：登录/注册，码发登录邮箱本身；
+      * ``bind``（需登录+无邮箱）：首次绑定，码发**目标新邮箱**；
+      * ``new``  （需登录+有邮箱）：换绑第一步，码发**新邮箱**（独立验证）；
+      * ``old``  （需登录+有邮箱）：换绑第二步，码发**旧邮箱**（账号主人确认）。
+      换绑需 new + old 两码都通过（EmailChangeView）。
+    防枚举：login purpose 对存在/不存在的邮箱返回一致文案。
+
+    认证：沿用全局 JWTAuthentication（带 Bearer 可识别用户，匿名走 login 分支）。
+    permission_classes 留空（login 公开）；其余分支手动校验登录态 +
+    设备信任门（§9.3，与 IsAuthenticatedAndTrusted 等价）。
+    """
+
+    permission_classes: list = []
+
+    def post(self, request):
+        data = request.data or {}
+        email = _valid_new_email(data.get("email"))
+        purpose = (data.get("purpose") or "").strip()
+        if purpose not in EmailCodeStore.PURPOSES:
+            return Response(
+                {"error": {"code": 400, "message": "purpose 参数无效"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if email is None:
+            return Response(
+                {"error": {"code": 400, "message": "邮箱格式不正确"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # 全局粗限流（IP 维度）
+        if not check_rate_limit(request, *settings.RATE_LIMIT_GLOBAL_IP, scope="ip-coarse"):
+            return Response(
+                {"error": {"code": 429, "message": "请求过于频繁，请稍后再试"}},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        user = getattr(request, "user", None)
+        authed = (
+            user is not None
+            and getattr(user, "is_authenticated", False)
+            and isinstance(user, PassportUser)
+        )
+        if purpose in ("bind", "new", "old") and (
+            not authed or not _is_device_trusted(request)
+        ):
+            return Response(
+                {"error": {"code": 401, "message": "该设备未受信任，请重新登录"}},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if purpose == "bind":
+            # 首次绑定：当前无邮箱；码发目标新邮箱。
+            if request.user.email:
+                return Response(
+                    {"error": {"code": 409, "message": "账户已绑定邮箱，请使用「更改邮箱」"}},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if PassportUser.objects.filter(email__iexact=email).exists():
+                return Response(
+                    {"error": {"code": 409, "message": "该邮箱已被其他账户绑定"}},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            ok, err = _send_email_code(request, email, "bind")
+        elif purpose == "new":
+            # 换绑第一步：新邮箱独立验证，码发新邮箱。
+            if not request.user.email:
+                return Response(
+                    {"error": {"code": 409, "message": "账户尚未绑定邮箱，请先绑定邮箱"}},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if email == request.user.email.strip().lower():
+                return Response(
+                    {"error": {"code": 400, "message": "新邮箱不能与当前邮箱相同"}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if PassportUser.objects.filter(email__iexact=email).exclude(pk=request.user.pk).exists():
+                return Response(
+                    {"error": {"code": 409, "message": "该邮箱已被其他账户绑定"}},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            ok, err = _send_email_code(request, email, "new")
+        elif purpose == "old":
+            # 换绑第二步：账号主人确认，码发旧邮箱。
+            if not request.user.email:
+                return Response(
+                    {"error": {"code": 409, "message": "账户尚未绑定邮箱，请先绑定邮箱"}},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            ok, err = _send_email_code(request, request.user.email, "old")
+        else:  # login：公开，码发给登录邮箱本身
+            if not settings.PASSWORD_RESET_ENABLED:
+                return Response(
+                    {"error": {"code": 503, "message": "邮件服务未配置，暂时无法使用邮箱验证码登录"}},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            # 登录限流（按邮箱维度）
+            if not check_rate_limit(
+                request, *settings.RATE_LIMIT_LOGIN, scope="email-code", identifier=email
+            ):
+                return Response(
+                    {"error": {"code": 429, "message": "请求过于频繁，请稍后再试"}},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+            ok, err = _send_email_code(request, email, "login")
+
+        if not ok:
+            # 503 类（SMTP 未配/故障）与 429（频率）分别透传语义
+            status_code = status.HTTP_429_TOO_MANY_REQUESTS if "频繁" in err or "上限" in err else status.HTTP_503_SERVICE_UNAVAILABLE
+            return Response({"error": {"code": status_code, "message": err}}, status=status_code)
+        return Response({"detail": "验证码已发送，请查收邮件（含垃圾邮件箱）"}, status=status.HTTP_200_OK)
+
+
+class EmailLoginView(APIView):
+    """``POST /api/v1/login/email/  {email, code}`` — 验证码登录；无账号自动注册。
+
+    与密码登录并行：已有账户直接登录；新邮箱自动建号（无密码、无 OAuth 绑定），
+    后续可在账户安全页设置密码。建号即视为邮箱已验证（验证码本身就是所有权证明）。
+    """
+
+    authentication_classes: list = []
+    permission_classes: list = []
+
+    def post(self, request):
+        data = request.data or {}
+        email = _valid_new_email(data.get("email"))
+        code = (data.get("code") or "").strip()
+        if email is None:
+            return Response(
+                {"error": {"code": 400, "message": "邮箱格式不正确"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not code:
+            return Response(
+                {"error": {"code": 400, "message": "请输入邮件中的验证码"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not check_rate_limit(
+            request, *settings.RATE_LIMIT_LOGIN, scope="email-login", identifier=email
+        ):
+            return Response(
+                {"error": {"code": 429, "message": "请求过于频繁，请稍后再试"}},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        if not check_rate_limit(request, *settings.RATE_LIMIT_GLOBAL_IP, scope="ip-coarse"):
+            return Response(
+                {"error": {"code": 429, "message": "请求过于频繁，请稍后再试"}},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        if not EmailCodeStore().verify(email, "login", code):
+            record_login_failure(request=request, reason="bad_email_code")
+            return Response(
+                {"error": {"code": 401, "message": "验证码错误或已过期"}},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        user = PassportUser.objects.filter(email__iexact=email).first()
+        created = False
+        if user is None:
+            # 自动注册：无密码（可用账户安全页设置），无 OAuth 绑定。
+            user = PassportUser.objects.create_user(email=email)
+            created = True
+        if not user.is_active:
+            return Response(
+                {"error": {"code": 403, "message": "账户已被禁用"}},
+                status=status.HTTP_403_FORBIDDEN,
             )
         tokens = issue_tokens(user)
         record_login_success(user, jti=tokens["jti"], request=request)
-        return Response(tokens)
+        return Response(
+            {**tokens, "created": created},
+            status=status.HTTP_200_OK,
+        )
 
 
-class PasskeyDetailView(APIView):
-    """Remove a passkey (owner only)."""
+class EmailBindView(APIView):
+    """首次绑定邮箱（当前无邮箱账户）。
+
+    ``POST /api/v1/security/email/bind/  {email, code, current_password?}``
+    验证码已发到**目标新邮箱**；有密码账户须验密码（step-up）。
+    """
 
     permission_classes = [IsAuthenticatedAndTrusted]
 
-    def delete(self, request, pk):
-        obj = Passkey.objects.filter(id=pk, user=request.user).first()
-        if not obj:
+    def post(self, request):
+        data = request.data or {}
+        email = _valid_new_email(data.get("email"))
+        code = (data.get("code") or "").strip()
+        if email is None:
             return Response(
-                {"error": {"code": 404, "message": "通行密钥不存在"}}, status=404
+                {"error": {"code": 400, "message": "邮箱格式不正确"}},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        obj.delete()
-        return Response(status=204)
+        if request.user.email:
+            return Response(
+                {"error": {"code": 409, "message": "账户已绑定邮箱，请使用「更改邮箱」"}},
+                status=status.HTTP_409_CONFLICT,
+            )
+        # step-up：有密码账户须验密码（复用 verify_step_up）
+        ok, err = verify_step_up(request.user, {"password": str(data.get("current_password") or "")})
+        if not ok:
+            return Response(
+                {"error": {"code": 400, "message": err}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if PassportUser.objects.filter(email__iexact=email).exclude(pk=request.user.pk).exists():
+            return Response(
+                {"error": {"code": 409, "message": "该邮箱已被其他账户绑定"}},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if not EmailCodeStore().verify(email, "bind", code):
+            return Response(
+                {"error": {"code": 401, "message": "验证码错误或已过期"}},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        try:
+            request.user.email = email
+            request.user.save(update_fields=["email", "updated_at"])
+        except IntegrityError:
+            return Response(
+                {"error": {"code": 409, "message": "该邮箱已被其他账户绑定"}},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            {"detail": "邮箱绑定成功", "email": email},
+            status=status.HTTP_200_OK,
+        )
+
+
+class EmailChangeView(APIView):
+    """更改邮箱（已有邮箱账户）——双重验证。
+
+    ``POST /api/v1/security/email/change/
+        {new_email, new_code, old_code, current_password?}``
+
+    * ``new_code``：发到**新邮箱**（purpose=new，证明拥有新邮箱）；
+    * ``old_code``：发到**旧邮箱**（purpose=old，证明账号主人身份）；
+    * 有密码账户另须验密码（step-up）。
+    三者（两码 + 可能的密码）都通过才换绑。
+    """
+
+    permission_classes = [IsAuthenticatedAndTrusted]
+
+    def post(self, request):
+        data = request.data or {}
+        new_email = _valid_new_email(data.get("new_email"))
+        new_code = (data.get("new_code") or "").strip()
+        old_code = (data.get("old_code") or "").strip()
+        if new_email is None:
+            return Response(
+                {"error": {"code": 400, "message": "新邮箱格式不正确"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not request.user.email:
+            return Response(
+                {"error": {"code": 409, "message": "账户尚未绑定邮箱，请先绑定邮箱"}},
+                status=status.HTTP_409_CONFLICT,
+            )
+        # step-up：有密码账户须验密码
+        ok, err = verify_step_up(request.user, {"password": str(data.get("current_password") or "")})
+        if not ok:
+            return Response(
+                {"error": {"code": 400, "message": err}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if new_email == request.user.email.strip().lower():
+            return Response(
+                {"error": {"code": 400, "message": "新邮箱不能与当前邮箱相同"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if PassportUser.objects.filter(email__iexact=new_email).exclude(pk=request.user.pk).exists():
+            return Response(
+                {"error": {"code": 409, "message": "该邮箱已被其他账户绑定"}},
+                status=status.HTTP_409_CONFLICT,
+            )
+        store = EmailCodeStore()
+        # 双重验证：新邮箱所有权 + 旧邮箱账号主人确认。
+        if not store.verify(new_email, "new", new_code):
+            return Response(
+                {"error": {"code": 401, "message": "新邮箱验证码错误或已过期"}},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        if not store.verify(request.user.email, "old", old_code):
+            return Response(
+                {"error": {"code": 401, "message": "当前邮箱验证码错误或已过期"}},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        try:
+            request.user.email = new_email
+            request.user.save(update_fields=["email", "updated_at"])
+        except IntegrityError:
+            return Response(
+                {"error": {"code": 409, "message": "该邮箱已被其他账户绑定"}},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            {"detail": "邮箱已更改", "email": new_email},
+            status=status.HTTP_200_OK,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Passkeys / WebAuthn (§9.4b) — 已于 2026-08-27 正式移出范围
+#
+# 决策记录：注册端点自 2026-08-08 起因安全考量 501，登录端点也从未在前端
+# 暴露。经用户确认整体砍除（模型/端点/前端 UI/依赖全删，迁移删表）。
+# 历史设计见仓库 docs / HANDOVER.md §9.4b。
+# --------------------------------------------------------------------------- #
 
 
 def passport_configuration(request):

@@ -18,8 +18,7 @@ pyotp>=2.9
 Pillow>=10.0
 qrcode>=7.4
 
-# WebAuthn / Passkey（§9.4b）。纯本地密码学库（CBOR / COSE 解析），无外部服务依赖。
-webauthn>=3.0
+# WebAuthn / Passkey（§9.4b）已于 2026-08-27 砍除，依赖移除。
 
 # ---- Deployment ----
 gunicorn>=21.2
