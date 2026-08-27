@@ -7,8 +7,7 @@ import { z } from "zod";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/ui";
 import { Eye, EyeOff, Key, Check, Alert } from "@/components/icons";
-import type { Passkey } from "@/lib/data";
-import { registerPasskey, changePassword } from "@/lib/passport-api";
+import { changePassword } from "@/lib/passport-api";
 import { scorePassword } from "@/lib/password-strength";
 import { cn } from "@/lib/cn";
 
@@ -239,93 +238,7 @@ export function ChangePasswordModal({
   );
 }
 
-/* ------------------------ Add Passkey ------------------------ */
-export function AddPasskeyModal({
-  open,
-  onClose,
-  onSuccess,
-  token,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onSuccess: (pk: Passkey) => void;
-  token?: string | null;
-}) {
-  const [phase, setPhase] = React.useState<"idle" | "creating">("idle");
-  const [name, setName] = React.useState("");
-  const [error, setError] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (!open) {
-      setPhase("idle");
-      setName("");
-      setError(null);
-    }
-  }, [open]);
-
-  const start = async () => {
-    if (!token) {
-      setError("登录状态已失效，请重新登录");
-      return;
-    }
-    setPhase("creating");
-    setError(null);
-    try {
-      const pk = await registerPasskey(token, name.trim() || undefined);
-      onSuccess(pk);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "注册失败，请稍后重试");
-      setPhase("idle");
-    }
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="添加通行密钥">
-      <div className="space-y-4">
-        <div className="flex items-start gap-3 rounded-2xl bg-accent-soft p-4 text-sm text-accent-ink">
-          <Key className="mt-0.5 h-5 w-5 shrink-0" />
-          <span>系统将调用你设备的指纹或面容识别，完成一次性的密钥注册。</span>
-        </div>
-        {phase !== "creating" && (
-          <Field label="名称（选填）">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="如：MacBook Touch ID"
-              className="h-12 w-full rounded-xl border border-line bg-surface px-3.5 text-[15px] text-ink outline-none focus:border-accent"
-            />
-          </Field>
-        )}
-        <div className="flex items-center justify-center rounded-2xl border border-line bg-paper py-8">
-          {phase === "creating" ? (
-            <div className="flex flex-col items-center gap-3 text-ink-muted">
-              <Spinner className="h-7 w-7 text-accent" />
-              <span className="text-sm">正在调用设备认证…</span>
-            </div>
-          ) : (
-            <div className="text-center">
-              <p className="text-sm font-medium text-ink">准备就绪</p>
-              <p className="mt-1 text-xs text-ink-muted">点击下方按钮开始注册</p>
-            </div>
-          )}
-        </div>
-        {error && (
-          <div className="flex items-center gap-2 rounded-xl bg-danger-soft px-3.5 py-2.5 text-sm font-medium text-danger">
-            <Alert className="h-4 w-4 shrink-0" /> {error}
-          </div>
-        )}
-        <div className="flex justify-end gap-3">
-          <Button variant="secondary" onClick={onClose}>
-            取消
-          </Button>
-          <Button onClick={start} disabled={phase === "creating"}>
-            {phase === "creating" ? "注册中…" : "开始注册"}
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
+/* AddPasskeyModal 已随 §9.4b 砍除（2026-08-27）删除。 */
 
 /* ------------------------ Confirm delete ------------------------ */
 export function DeleteAccountModal({

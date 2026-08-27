@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { fetchUserInfo, type UserInfo } from "@/lib/passport-api";
+import { exchangeAuthToken, fetchUserInfo, type UserInfo } from "@/lib/passport-api";
+import { takeVerifier } from "@/lib/pkce";
 import { Avatar } from "@/components/Avatar";
 import { Check, X, Sparkles } from "@/components/icons";
 
@@ -16,15 +17,15 @@ const PROVIDER_LABELS: Record<string, string> = {
 /**
  * OAuth / DEBUG 登录回调页。
  *
- * 后端在 OAuth 回调完成后重定向到：
- *   /auth/callback#access_token=...&refresh_token=...&passport_user_id=...
+ * 回跳有两种形态：
+ *   1. 授权码 + PKCE（新）：/auth/callback?code=... —— 先用 sessionStorage 里的
+ *      code_verifier 调 POST /api/v1/oauth/token/ 换取令牌（令牌不进 URL）；
+ *   2. 旧 fragment（过渡兼容）：/auth/callback#access_token=...&refresh_token=...
  *
  * 流程（参考 passport.eacm.cn 的登录确认环节）：
- *   1. 从 fragment 取出 token，先用 access_token 拉一次 userinfo 作为「预览」，不落库；
+ *   1. 拿到 token 后先用 access_token 拉一次 userinfo 作为「预览」，不落库；
  *   2. 展示「是否以 [头像][昵称] 的身份登录」确认卡片；
  *   3. 用户点「确认登录」才真正调用 login() 存储令牌并完成登录；点「取消」则丢弃 token 返回登录页。
- *
- * 这样在登录回调的等待/确认期间就能把用户头像与昵称展示出来，避免无声无息地登录。
  */
 type Status = "loading" | "preview" | "confirming" | "error" | "bound";
 
@@ -40,6 +41,24 @@ export default function AuthCallbackPage() {
   const [boundProvider, setBoundProvider] = React.useState<string | null>(null);
 
   React.useEffect(() => {
+    let cancelled = false;
+
+    const previewWithTokens = (access: string, refresh: string) => {
+      setTokens({ access, refresh });
+      // 仅拉预览，不存储 —— 等用户确认后再 login()
+      fetchUserInfo(access)
+        .then((u) => {
+          if (cancelled) return;
+          setPreview(u);
+          setStatus("preview");
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setStatus("error");
+          setMessage("登录凭证无效或已过期，请重新登录。");
+        });
+    };
+
     // 第三方账号「绑定」回跳：后端 OAuthCallbackView 在 link_mode 下重定向到
     // /auth/callback?bound=<provider>&status=success。此时用户已登录，刷新
     // userinfo（含最新 providers）后跳回安全页即可看到新关联的平台。
@@ -57,6 +76,32 @@ export default function AuthCallbackPage() {
       return () => clearTimeout(t);
     }
 
+    // 授权码 + PKCE 模式：?code=xxx —— 用 verifier 换令牌。
+    const code = search.get("code");
+    if (code) {
+      const verifier = takeVerifier();
+      if (!verifier) {
+        setStatus("error");
+        setMessage("登录会话已失效（找不到 PKCE verifier），请返回登录页重试。");
+        return;
+      }
+      // 清掉地址栏的一次性 code
+      window.history.replaceState(null, "", window.location.pathname);
+      exchangeAuthToken(code, verifier)
+        .then((t) => {
+          if (!cancelled) previewWithTokens(t.access, t.refresh);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setStatus("error");
+          setMessage("授权码无效或已过期，请重新登录。");
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // 旧 fragment 模式（过渡兼容）。
     const hash = window.location.hash.substring(1);
     const params = new URLSearchParams(hash);
     const access = params.get("access_token");
@@ -67,18 +112,12 @@ export default function AuthCallbackPage() {
       setMessage("未收到登录凭证，请返回登录页重试。");
       return;
     }
-    setTokens({ access, refresh });
-
-    // 仅拉预览，不存储 —— 等用户确认后再 login()
-    fetchUserInfo(access)
-      .then((u) => {
-        setPreview(u);
-        setStatus("preview");
-      })
-      .catch(() => {
-        setStatus("error");
-        setMessage("登录凭证无效或已过期，请重新登录。");
-      });
+    // 清理 URL 中的令牌 fragment，避免令牌泄漏到浏览器历史/分享链接
+    window.history.replaceState(null, "", window.location.pathname);
+    previewWithTokens(access, refresh);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const confirmLogin = async () => {

@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { passwordLogin, ApiException } from "@/lib/passport-api";
 import { Sparkles, Eye, EyeOff } from "@/components/icons";
-import { ComingSoonModal } from "@/components/modal";
 
 const HCAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY;
 
@@ -45,7 +44,6 @@ export default function PasswordLoginPage() {
   const [captchaError, setCaptchaError] = React.useState<string | null>(null);
   const captchaRef = React.useRef<HTMLDivElement | null>(null);
   const captchaRendered = React.useRef(false);
-  const [comingSoon, setComingSoon] = React.useState(false);
 
   // 已登录 → 直接跳走
   React.useEffect(() => {
@@ -268,26 +266,18 @@ export default function PasswordLoginPage() {
             <ArrowLeftIcon className="h-4 w-4" />
             返回其他登录方式
           </Link>
-          <button
-            type="button"
-            onClick={() => setComingSoon(true)}
+          <Link
+            href="/login/password/forgot"
             className="text-ink-muted transition-colors hover:text-accent min-h-[44px]"
           >
             忘记密码？
-          </button>
+          </Link>
         </div>
 
         <p className="mt-8 text-center text-xs text-ink-muted">
           还没有账户？使用上方第三方登录即可创建通行证
         </p>
       </div>
-
-      {/* 占位提示：忘记密码（当前功能开发中） */}
-      <ComingSoonModal
-        open={comingSoon}
-        feature="忘记密码"
-        onClose={() => setComingSoon(false)}
-      />
     </div>
   );
 }

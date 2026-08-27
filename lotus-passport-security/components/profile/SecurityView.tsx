@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { SecurityScore } from "@/components/security/SecurityScore";
 import {
   PasswordSection,
-  PasskeySection,
   SessionsSection,
   LoginHistorySection,
   ConnectedAccountsSection,
@@ -23,8 +22,6 @@ import {
   getSessions,
   getLoginHistory,
   revokeSession,
-  getPasskeys,
-  deletePasskey,
   getPasswordStatus,
   getOAuthAccounts,
   unbindOAuth,
@@ -36,7 +33,6 @@ import {
 import { scorePassword } from "@/lib/password-strength";
 import {
   type SecurityFactors,
-  type Passkey,
   type Provider,
   type Session,
   type LoginEvent,
@@ -99,7 +95,6 @@ export function SecurityView() {
   const { user, accessToken, logout, setUser } = useAuth();
   const router = useRouter();
 
-  const [passkeys, setPasskeys] = React.useState<Passkey[]>([]);
   const [sessions, setSessions] = React.useState<Session[] | null>(null);
   const [events, setEvents] = React.useState<LoginEvent[] | null>(null);
   const [profile, setProfile] = React.useState<UserInfo | null>(null);
@@ -111,17 +106,16 @@ export function SecurityView() {
   const [pwOpen, setPwOpen] = React.useState(false);
   const [delOpen, setDelOpen] = React.useState(false);
 
-  // 真实拉取：资料(取 has_password 供注销 step-up) / 会话 / 登录历史 / 通行密钥 / 密码状态 / 第三方绑定。
+  // 真实拉取：资料(取 has_password 供注销 step-up) / 会话 / 登录历史 / 密码状态 / 第三方绑定。
   React.useEffect(() => {
     if (!accessToken) return;
     let alive = true;
     (async () => {
       try {
-        const [p, s, h, pks, ps, accs] = await Promise.all([
+        const [p, s, h, ps, accs] = await Promise.all([
           getProfile(accessToken),
           getSessions(accessToken),
           getLoginHistory(accessToken),
-          getPasskeys(accessToken),
           getPasswordStatus(accessToken),
           getOAuthAccounts(accessToken),
         ]);
@@ -129,7 +123,6 @@ export function SecurityView() {
         setProfile(p);
         setSessions(s);
         setEvents(h);
-        setPasskeys(pks);
         setPwdStatus(ps);
         setProviders(toProviders(accs));
       } catch (err) {
@@ -168,16 +161,6 @@ export function SecurityView() {
       setSessions((prev) => (prev ? prev.filter((x) => x.id !== id) : prev));
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "退出会话失败");
-    }
-  };
-
-  const handleRemovePasskey = async (id: string) => {
-    if (!accessToken) return;
-    try {
-      await deletePasskey(accessToken, id);
-      setPasskeys((prev) => prev.filter((x) => x.id !== id));
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "删除通行密钥失败");
     }
   };
 
@@ -242,12 +225,6 @@ export function SecurityView() {
               lastChanged={lastChanged}
               strength={strength}
               onEdit={() => setPwOpen(true)}
-            />
-          </Reveal>
-          <Reveal delay={0.04}>
-            <PasskeySection
-              passkeys={passkeys}
-              onRemove={handleRemovePasskey}
             />
           </Reveal>
           <Reveal delay={0.08}>

@@ -9,8 +9,6 @@ import {
 } from "@/components/ui";
 import {
   Lock,
-  Key,
-  Fingerprint,
   Desktop,
   History,
   Alert,
@@ -23,7 +21,6 @@ import {
   Check,
 } from "@/components/icons";
 import type {
-  Passkey,
   Session,
   LoginEvent,
   Provider,
@@ -65,54 +62,7 @@ export function PasswordSection({
   );
 }
 
-/* --------------------------- Passkeys --------------------------- */
-export function PasskeySection({
-  passkeys,
-  onRemove,
-}: {
-  passkeys: Passkey[];
-  onRemove: (id: string) => void;
-}) {
-  return (
-    <SectionCard
-      icon={Fingerprint}
-      title="通行密钥 (Passkey)"
-      description="当前功能待开发。"
-    >
-      {passkeys.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-line bg-paper/60 p-6 text-center text-sm text-ink-muted">
-          当前功能待开发。
-        </div>
-      ) : (
-        <ul className="divide-y divide-line">
-          {passkeys.map((pk) => (
-            <li key={pk.id} className="flex items-center gap-4 py-3.5 first:pt-0 last:pb-0">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-success-soft text-success">
-                <Key className="h-5 w-5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-ink">{pk.name}</p>
-                <p className="truncate text-sm text-ink-muted">
-                  {pk.device} · 添加于 {pk.added}
-                </p>
-              </div>
-              <span className="hidden text-sm text-ink-muted sm:block">
-                {pk.lastUsed}
-              </span>
-              <button
-                onClick={() => onRemove(pk.id)}
-                aria-label={`移除 ${pk.name}`}
-                className="grid h-9 w-9 place-items-center rounded-xl text-ink-muted hover:bg-danger-soft hover:text-danger min-h-[44px] min-w-[44px]"
-              >
-                <Trash className="h-4 w-4" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </SectionCard>
-  );
-}
+/* Passkey 区块已随 §9.4b 砍除（2026-08-27），不再渲染。 */
 
 /* --------------------------- Sessions --------------------------- */
 export function SessionsSection({

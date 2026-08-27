@@ -6,12 +6,12 @@ import { Check, Sparkles } from "@/components/icons";
 import type { SecurityFactors } from "@/lib/data";
 import { cn } from "@/lib/cn";
 
-const WEIGHTS: Record<Exclude<keyof SecurityFactors, "passkey">, number> = {
+const WEIGHTS: Record<keyof SecurityFactors, number> = {
   password: 50,
   monitoring: 50,
 };
 
-const LABELS: Record<Exclude<keyof SecurityFactors, "passkey">, string> = {
+const LABELS: Record<keyof SecurityFactors, string> = {
   password: "登录密码已设置",
   monitoring: "登录异常监控",
 };

@@ -9,8 +9,8 @@ import {
   fetchDevStatus,
   getDevLoginUrl,
 } from "@/lib/passport-api";
+import { createPkcePair } from "@/lib/pkce";
 import { Sparkles } from "@/components/icons";
-import { ComingSoonModal } from "@/components/modal";
 
 type OAuthProvider = {
   id: "github" | "wechat" | "qq";
@@ -54,7 +54,6 @@ export default function LoginPage() {
   const [loading, setLoading] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [devProviders, setDevProviders] = React.useState<string[]>([]);
-  const [comingSoon, setComingSoon] = React.useState<string | null>(null);
 
   // 已登录 → 直接跳走（落地到资料主页，便于首次 OAuth 登录后引导设置账号名/密码）
   React.useEffect(() => {
@@ -72,24 +71,32 @@ export default function LoginPage() {
     };
   }, []);
 
-  const handleDevLogin = (provider: string) => {
+  const handleDevLogin = async (provider: string) => {
     setLoading(`dev-${provider}`);
-    const redirectUri = `${window.location.origin}/auth/callback`;
-    window.location.href = getDevLoginUrl(provider, redirectUri);
+    try {
+      const redirectUri = `${window.location.origin}/auth/callback`;
+      // 与真实登录一致：PKCE 授权码模式（code 经 sessionStorage 的 verifier 换令牌）
+      const challenge = await createPkcePair();
+      window.location.href = getDevLoginUrl(provider, redirectUri, challenge);
+    } catch {
+      setLoading(null);
+      window.location.href = getDevLoginUrl(provider, `${window.location.origin}/auth/callback`);
+    }
   };
 
   const handleLogin = async (provider: "github" | "wechat" | "qq") => {
     setLoading(provider);
     setError(null);
     try {
-      // 让后端把签发的 JWT 用 fragment 弹回 SPA 的回调页
+      // 授权码 + PKCE：后端回调只回跳一次性 code，令牌由回调页
+      // exchangeAuthToken(code, verifier) 换取，不再经 URL fragment 下发。
       const redirectUri = `${window.location.origin}/auth/callback`;
-      const { authorize_url } = await getOAuthLoginUrl(provider, redirectUri);
+      const challenge = await createPkcePair();
+      const { authorize_url } = await getOAuthLoginUrl(provider, redirectUri, challenge);
       window.location.href = authorize_url;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "请求失败，请稍后重试";
       setError(msg);
-    } finally {
       setLoading(null);
     }
   };
@@ -166,23 +173,21 @@ export default function LoginPage() {
           </Link>
         </div>
 
-        {/* 邮箱验证码登录 / 忘记密码（占位入口，当前功能开发中） */}
+        {/* 邮箱验证码登录 / 忘记密码（两者统一 inline-flex，保证基线对齐） */}
         <div className="mt-4 flex items-center justify-center gap-x-4 gap-y-1 text-sm">
-          <button
-            type="button"
-            onClick={() => setComingSoon("邮箱验证码登录")}
-            className="text-ink-muted transition-colors hover:text-accent min-h-[44px]"
+          <Link
+            href="/login/email"
+            className="inline-flex items-center min-h-[44px] text-ink-muted transition-colors hover:text-accent"
           >
             邮箱验证码登录
-          </button>
+          </Link>
           <span className="text-line">·</span>
-          <button
-            type="button"
-            onClick={() => setComingSoon("忘记密码")}
-            className="text-ink-muted transition-colors hover:text-accent min-h-[44px]"
+          <Link
+            href="/login/password/forgot"
+            className="inline-flex items-center min-h-[44px] text-ink-muted transition-colors hover:text-accent"
           >
             忘记密码？
-          </button>
+          </Link>
         </div>
 
         {/* 开发模式：未配置真实 OAuth 应用时用它跑通全链路 */}
@@ -215,13 +220,6 @@ export default function LoginPage() {
           登录即表示你同意莲花通行证的服务条款与隐私政策
         </p>
       </div>
-
-      {/* 占位提示：邮箱验证码登录 / 忘记密码（当前功能开发中） */}
-      <ComingSoonModal
-        open={comingSoon !== null}
-        feature={comingSoon || ""}
-        onClose={() => setComingSoon(null)}
-      />
     </div>
   );
 }

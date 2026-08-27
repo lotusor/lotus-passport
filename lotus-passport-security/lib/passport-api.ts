@@ -17,7 +17,6 @@ import type {
   Session,
   LoginEvent,
   AuthDevice,
-  Passkey,
   Provider,
 } from "@/lib/data";
 
@@ -148,15 +147,38 @@ async function request<T>(
 
 /**
  * 发起 OAuth 登录，返回提供商的授权链接。
- * 传入 redirectUri（通常是 `${origin}/auth/callback`）后，后端会在回调完成、
- * 签发 JWT 后把 token 以 URL fragment 的形式弹回该地址；前端 /auth/callback 负责解析。
+ *
+ * 传 codeChallenge（S256）时走「授权码 + PKCE」模式（推荐）：后端在回调完成
+ * 后只把一次性 code 以 `?code=` 回跳，令牌由 exchangeAuthToken() 换取，
+ * 不再经 URL fragment 下发。不传时为旧 fragment 模式（过渡兼容）。
  */
 export async function getOAuthLoginUrl(
   provider: "github" | "wechat" | "qq",
-  redirectUri?: string
+  redirectUri?: string,
+  codeChallenge?: string
 ): Promise<OAuthLoginResponse> {
-  const qs = redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : "";
+  const params = new URLSearchParams();
+  if (redirectUri) params.set("redirect_uri", redirectUri);
+  if (codeChallenge) {
+    params.set("code_challenge", codeChallenge);
+    params.set("code_challenge_method", "S256");
+  }
+  const qs = params.toString() ? `?${params.toString()}` : "";
   return request(`/api/v1/oauth/${provider}/login/${qs}`);
+}
+
+/**
+ * 授权码 + PKCE 换令牌：POST /api/v1/oauth/token/ {code, code_verifier}。
+ * code 由回调页 `?code=` 提供；code_verifier 由发起登录时存入 sessionStorage。
+ */
+export async function exchangeAuthToken(
+  code: string,
+  codeVerifier: string
+): Promise<OAuthCallbackResponse> {
+  return request<OAuthCallbackResponse>("/api/v1/oauth/token/", {
+    method: "POST",
+    body: JSON.stringify({ code, code_verifier: codeVerifier }),
+  });
 }
 
 /**
@@ -424,121 +446,9 @@ export async function setDeviceTrust(
 }
 
 // ---------------------------------------------------------------------------
-// 通行密钥 / WebAuthn（§9.4b）
+// 通行密钥 / WebAuthn（§9.4b）已于 2026-08-27 砍除：后端端点/模型已移除，
+// 前端 API 函数与 UI 一并删除。
 // ---------------------------------------------------------------------------
-
-interface RegistrationOptions {
-  challenge: string;
-  user: { id: string; name: string; displayName: string };
-  excludeCredentials?: Array<{ id: string; type?: string; transports?: string[] }>;
-  rp?: { name: string; id?: string };
-  pubKeyCredParams?: unknown[];
-  authenticatorSelection?: unknown;
-  attestation?: string;
-  timeout?: number;
-  [key: string]: unknown;
-}
-
-/** 通行密钥列表（§9.4b）。 */
-export async function getPasskeys(token: string): Promise<Passkey[]> {
-  const data = await request<{ passkeys: Array<Record<string, unknown>> }>(
-    "/api/v1/security/passkeys/",
-    {},
-    token
-  );
-  return (data.passkeys || []).map((r) => ({
-    id: String(r.id),
-    name: (r.name as string) || "通行密钥",
-    device: (r.device as string) || "—",
-    added: fmtTs((r.added_at as string) ?? null),
-    lastUsed: fmtTs((r.last_used_at as string) ?? null),
-  }));
-}
-
-/** 删除某通行密钥（§9.4b）。成功 204 无响应体。 */
-export async function deletePasskey(token: string, id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/v1/webauthn/${id}/`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    throw new ApiException(await _errMsg(res), res.status);
-  }
-}
-
-function b64urlToBytes(s: string): Uint8Array {
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
-  const bin = atob(b64 + pad);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
-function bufToB64url(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function buildCreationOptions(opts: RegistrationOptions): PublicKeyCredentialCreationOptions {
-  return {
-    ...opts,
-    challenge: b64urlToBytes(opts.challenge),
-    user: { ...opts.user, id: b64urlToBytes(opts.user.id) },
-    excludeCredentials: (opts.excludeCredentials || []).map((c) => ({
-      ...c,
-      id: b64urlToBytes(c.id),
-    })),
-  } as PublicKeyCredentialCreationOptions;
-}
-
-function credentialToJSON(cred: PublicKeyCredential) {
-  const res = cred.response as AuthenticatorAttestationResponse;
-  return {
-    id: cred.id,
-    rawId: bufToB64url(cred.rawId),
-    type: cred.type,
-    response: {
-      clientDataJSON: bufToB64url(res.clientDataJSON),
-      attestationObject: bufToB64url(res.attestationObject),
-      transports: res.getTransports ? res.getTransports() : [],
-    },
-  };
-}
-
-/**
- * 注册新通行密钥（§9.4b）：向后端取注册选项 → 调浏览器 WebAuthn 仪式 →
- * 把 attestation 回传后端落库。需在用户手势（点击）中调用，否则浏览器拒绝。
- */
-export async function registerPasskey(
-  token: string,
-  name?: string
-): Promise<Passkey> {
-  const opts = await request<RegistrationOptions>(
-    "/api/v1/webauthn/options/register/",
-    { method: "POST" },
-    token
-  );
-  const cred = await navigator.credentials.create({
-    publicKey: buildCreationOptions(opts),
-  });
-  if (!cred) throw new ApiException("未能创建通行密钥", 400);
-  const response = credentialToJSON(cred as PublicKeyCredential);
-  const pk = await request<Record<string, unknown>>(
-    "/api/v1/webauthn/register/",
-    { method: "POST", body: JSON.stringify({ response, name }) },
-    token
-  );
-  return {
-    id: String(pk.id),
-    name: (pk.name as string) || "通行密钥",
-    device: (pk.device as string) || "—",
-    added: fmtTs((pk.added_at as string) ?? null),
-    lastUsed: fmtTs((pk.last_used_at as string) ?? null),
-  };
-}
 
 // ---------------------------------------------------------------------------
 // 登录密码（§9.4a）
@@ -659,11 +569,114 @@ export async function fetchDevStatus(): Promise<DevStatus> {
 }
 
 /**
- * 构造模拟登录跳转地址。后端会签发真实 JWT 并 302 回 redirectUri，
- * token 放在 URL fragment 里 —— 与真实 OAuth 回调完全一致，
- * 所以 /auth/callback 页面无需任何特判。
+ * 构造模拟登录跳转地址。传 codeChallenge 时走授权码 + PKCE 模式
+ * （与真实登录的新模式一致）；否则旧 fragment 模式。
  */
-export function getDevLoginUrl(provider: string, redirectUri: string): string {
+export function getDevLoginUrl(
+  provider: string,
+  redirectUri: string,
+  codeChallenge?: string
+): string {
   const qs = new URLSearchParams({ provider, redirect_uri: redirectUri });
+  if (codeChallenge) {
+    qs.set("code_challenge", codeChallenge);
+    qs.set("code_challenge_method", "S256");
+  }
   return `${API_BASE}/api/v1/dev/login/?${qs.toString()}`;
+}
+
+// ---------------------------------------------------------------------------
+// 密码找回（§9.4a reset）
+// ---------------------------------------------------------------------------
+
+/** 请求密码重置邮件。未配置 SMTP 时后端返回 503（邮件服务未配置）。 */
+export async function requestPasswordReset(identifier: string): Promise<void> {
+  await request("/api/v1/security/password/reset-request/", {
+    method: "POST",
+    body: JSON.stringify({ identifier }),
+  });
+}
+
+/** 用邮件里的一次性 token 设置新密码。成功后所有会话被吊销，需重新登录。 */
+export async function confirmPasswordReset(
+  token: string,
+  newPassword: string
+): Promise<void> {
+  await request("/api/v1/security/password/reset/", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 邮箱验证码（2026-08-27）：登录即注册 / 首次绑定 / 更改邮箱
+// ---------------------------------------------------------------------------
+
+export type EmailCodePurpose = "login" | "bind" | "new" | "old";
+
+/** 请求验证码。purpose 语义见后端 EmailCodeSendView（bind/new/old 需登录态）。 */
+export async function sendEmailCode(
+  email: string,
+  purpose: EmailCodePurpose,
+  token?: string | null
+): Promise<void> {
+  await request(
+    "/api/v1/security/email/send-code/",
+    { method: "POST", body: JSON.stringify({ email, purpose }) },
+    token
+  );
+}
+
+/** 邮箱验证码登录；无账号自动注册（返回 created 标记）。 */
+export async function emailLogin(
+  email: string,
+  code: string
+): Promise<PasswordLoginResponse & { created: boolean }> {
+  return request<PasswordLoginResponse & { created: boolean }>(
+    "/api/v1/login/email/",
+    { method: "POST", body: JSON.stringify({ email, code }) }
+  );
+}
+
+/** 首次绑定邮箱（码已发到目标新邮箱；有密码账户需 currentPassword）。 */
+export async function bindEmail(
+  token: string,
+  email: string,
+  code: string,
+  currentPassword?: string
+): Promise<void> {
+  await request(
+    "/api/v1/security/email/bind/",
+    {
+      method: "POST",
+      body: JSON.stringify({ email, code, current_password: currentPassword || "" }),
+    },
+    token
+  );
+}
+
+/**
+ * 更改邮箱（双重验证）：newCode 发到新邮箱、oldCode 发到旧邮箱，
+ * 有密码账户另需 currentPassword。三者都通过才换绑。
+ */
+export async function changeEmail(
+  token: string,
+  newEmail: string,
+  newCode: string,
+  oldCode: string,
+  currentPassword?: string
+): Promise<void> {
+  await request(
+    "/api/v1/security/email/change/",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        new_email: newEmail,
+        new_code: newCode,
+        old_code: oldCode,
+        current_password: currentPassword || "",
+      }),
+    },
+    token
+  );
 }

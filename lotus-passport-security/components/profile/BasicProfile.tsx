@@ -15,6 +15,7 @@ import { cn } from "@/lib/cn";
 import { useAuth } from "@/lib/auth-context";
 import { updateProfile, uploadAvatar, getProfile } from "@/lib/passport-api";
 import { Avatar } from "@/components/Avatar";
+import { ChangeEmailModal } from "@/components/profile/ChangeEmailModal";
 
 const PROVIDER_LABELS: Record<string, string> = {
   github: "GitHub",
@@ -113,6 +114,7 @@ export function BasicProfile() {
   const [avatarLoading, setAvatarLoading] = React.useState(false);
   const [avatarError, setAvatarError] = React.useState<string | null>(null);
   const [editOpen, setEditOpen] = React.useState(false);
+  const [emailChangeOpen, setEmailChangeOpen] = React.useState(false);
   const [savedAt, setSavedAt] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
 
@@ -414,7 +416,15 @@ export function BasicProfile() {
                 <Row
                   label="邮箱"
                   action={
-                    <CopyButton value={profile.email} />
+                    <span className="flex items-center gap-2">
+                      <CopyButton value={profile.email} />
+                      <button
+                        onClick={() => setEmailChangeOpen(true)}
+                        className="text-accent underline-offset-2 hover:underline"
+                      >
+                        更改
+                      </button>
+                    </span>
                   }
                 >
                   {profile.email || "—"}
@@ -482,19 +492,31 @@ export function BasicProfile() {
             error={errors.username?.message}
             {...register("username")}
           />
-          {/* 邮箱为登录标识，后端只读，前端不提供修改入口 */}
+          {/* 邮箱：更改走独立的「双重验证」流程（新邮箱验证码 + 旧邮箱验证码），不在本表单直接改 */}
           <div>
             <label className="mb-1.5 block text-sm font-medium text-ink-soft">
               邮箱
             </label>
-            <input
-              disabled
-              value={profile.email || ""}
-              placeholder="邮箱为登录标识，暂不可修改"
-              className="w-full rounded-xl border border-line bg-surface px-3.5 py-3 text-[15px] text-ink/60 outline-none min-h-[44px]"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                disabled
+                value={profile.email || ""}
+                placeholder="未绑定"
+                className="w-full rounded-xl border border-line bg-surface px-3.5 py-3 text-[15px] text-ink/60 outline-none min-h-[44px]"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setEditOpen(false);
+                  setEmailChangeOpen(true);
+                }}
+                className="shrink-0 rounded-xl border border-accent/40 px-3.5 text-sm font-medium text-accent transition-colors hover:bg-accent-soft min-h-[44px] whitespace-nowrap"
+              >
+                更改邮箱
+              </button>
+            </div>
             <p className="mt-1.5 text-xs text-ink-muted">
-              邮箱为登录标识，暂不支持修改。
+              更改邮箱需验证新邮箱与当前邮箱（双重验证码）。
             </p>
           </div>
           <Field
@@ -532,6 +554,20 @@ export function BasicProfile() {
           </div>
         </form>
       </Modal>
+
+      {/* 更改邮箱（双重验证） */}
+      <ChangeEmailModal
+        open={emailChangeOpen}
+        onClose={() => setEmailChangeOpen(false)}
+        token={accessToken}
+        currentEmail={profile.email}
+        hasPassword={Boolean(user?.has_password)}
+        onSuccess={(newEmail) => {
+          setEmailChangeOpen(false);
+          setProfile((p) => ({ ...p, email: newEmail }));
+          if (user) setUser({ ...user, email: newEmail });
+        }}
+      />
     </>
   );
 }
