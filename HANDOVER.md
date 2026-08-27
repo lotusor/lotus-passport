@@ -18,6 +18,31 @@
 > - **预留项**：Next 14.2.35 的 2 个 high 公告仍为已知可接受风险（§7.7）。
 > - 前端模块的详细状态、待办、技术栈与代码结构见 **§8**；后端待建能力清单与进度见 **§9**。
 
+> ## 📌 2026-08-27（第二批）邮箱验证码体系：强制邮箱 / 邮箱即登录即注册 / 双重验证换邮箱
+>
+> 前提：Resend SMTP 已配置（同日第一批），具备真实发信能力。用户需求：① 注册强制提供邮箱（密码找回的基础）；② 前后端支持更改邮箱（需验证码）；③ 邮箱成为独立注册入口；④ 修复登录页"忘记密码"与"邮箱验证码登录"不对齐。
+>
+> 1. **验证码基础设施**：`ratelimit.EmailCodeStore`——6 位数字码、10min TTL、单次消费、错 5 次作废；发送频率 60s/邮箱/purpose + 10 次/小时（防轰炸）；未配 SMTP 整体 503。四种 purpose：`login`（登录/注册）、`bind`（首次绑定）、`new`（换绑·新邮箱验证）、`old`（换绑·旧邮箱确认）。
+> 2. **强制邮箱（登录后拦截引导）**：OAuth 建号拿不到邮箱（QQ/微信/私密 GitHub）与存量无邮箱账户，登录后被前端 `AuthGate` 拦截到 `/profile/bind-email`（绑定页自身豁免防死循环）：输目标邮箱 → 码发**该新邮箱** → 验证（+有密码账户验密码）→ 绑定。后端不阻断登录（体验优先）。
+> 3. **邮箱验证码登录即注册**：`POST /api/v1/login/email/`（前端 `/login/email`）——已有账户直接登录；新邮箱自动建号（无密码，可后续设置），登录页原"邮箱验证码登录"占位入口已接通。
+> 4. **更改邮箱（双重验证，用户两轮确认的最终规则：新邮箱必须独立验证）**：`POST /api/v1/security/email/change/` 需同时通过——新邮箱验证码（purpose=new，证明拥有新邮箱）+ 旧邮箱验证码（purpose=old，证明账号主人）+（有密码账户）密码 step-up。首次绑定只需新邮箱一码。前端：资料页邮箱行新增"更改"按钮 + `ChangeEmailModal`。
+> 5. **端点**：`POST /api/v1/security/email/send-code/`（purpose 路由发码）、`POST /api/v1/login/email/`、`POST /api/v1/security/email/bind/`、`POST /api/v1/security/email/change/`。
+> 6. **对齐修复**：登录页底部两个入口统一 `inline-flex`（原 button 与 a 混排导致 min-h 不生效的基线不齐）。同轮修复：编辑资料弹窗里旧版邮箱字段显示"邮箱为登录标识，暂不支持修改"（历史只读提示）会误导用户以为改邮箱被锁——已改为展示当前邮箱 + 「更改邮箱」按钮（关闭编辑弹窗、打开 ChangeEmailModal 双重验证流程）。
+> 9. **邮件模板美化（2026-08-27 第三批）**：新增 `passport/email_templates.py` 统一 HTML 模板——品牌头部（favicon `https://account.eacm.cn/icon.png` + 「莲花通行证」字标，accent 朱红 #d9543f 底）、验证码 36px 大字号虚线框展示、密码重置为品牌色按钮 + 链接兜底、统一页脚防钓鱼提示。全部内联样式 + table 布局（Gmail/Outlook/QQ 邮箱会剥 `<style>`；不用 flex/grid）；纯文本正文兜底；邮件主题加「【莲花通行证】」前缀。四类验证码文案集中 `_EMAIL_CODE_COPY`。测试 20 例全过（验证码提取逻辑兼容纯文本版）。
+> 7. **测试**：新增 `test_email_codes.py` 12 例（全绿）：登录/注册/错码、绑定成功/防绑他人邮箱/占用拒绝、换绑双码缺一 401/密码 step-up/新旧同箱拒绝、码 store 单次性/5 次作废/未登录 bind 拒绝。全量 pytest 144 例（本地 135 过 / 9 存量环境失败，与改前一致）；`tsc --noEmit` 零错误；`next build` 通过（新页面 /login/email、/profile/bind-email）。
+> 8. **已知设计权衡**：① 邮箱登录自动注册的账户无密码无 OAuth——与"解绑保护"逻辑兼容（必有邮箱这一登录手段）；② `link_or_create_user` 的按 email 自动关联老账号目前仅 GitHub（verified primary）返回邮箱，安全；若未来微信/QQ 返回 email 需先加验证再关联（防劫持），已在本条目记录。
+
+> ## 📌 2026-08-27（第一批）协议补强与范围裁剪（用户确认后实施）
+>
+> 1. **授权码 + PKCE（RFC 7636）替代 fragment 下发令牌**：登录端点接受 `code_challenge`/`code_challenge_method(S256|plain)`；回调只回跳一次性授权码（`?code=`，Redis 单次消费、TTL 120s），前端 `POST /api/v1/oauth/token/ {code, code_verifier}` 换取令牌——**access/refresh token 不再经 URL fragment 下发**（原 Implicit 式做法，令牌会进浏览器历史/Referrer，OAuth 2.1 已废弃）。带 code_challenge 走新链路，不带则回落旧 fragment 模式（**过渡兼容**，接入方全部升级后可移除）。dev 桩登录同样支持。consent（外部应用）链路同样适配。
+> 2. **签发 `aud`（audience）**：`issue_tokens(user, audience)` 按登录 `redirect_uri` 的 origin 签发 `aud`（如 `https://rank.eacm.cn`）；接入方 SDK 配置同名 `AUDIENCE` 即启用校验（rank 已接通，env `PASSPORT_AUDIENCE`）。护照自身端点不校验 aud。注意：接入方开启校验后，存量无 aud 令牌会被拒（用户需重新登录一次，内部平台可接受）。
+> 3. **Passkey/WebAuthn 整体砍除**（用户决策）：后端 6 条端点、`Passkey` 模型（迁移 `0007_remove_passkey` 删表）、`webauthn.py`、`py_webauthn` 依赖、前端 UI/API 全删；`_user_retains_login_method` 不再把 passkey 计入登录方式。安全页只剩密码 + 会话/历史/第三方绑定。
+> 4. **密码找回（§9.4a reset）落地**：免费 SMTP（QQ 邮箱授权码 / Resend 免费层 3000 封/月）+ Redis 一次性 token（TTL 30min）。`POST /api/v1/security/password/reset-request/`（防枚举恒 200；未配 SMTP 一律 503 并提示改走第三方登录）+ `POST /api/v1/security/password/reset/`（设新密 + 吊销全部会话）。前端新增 `/login/password/forgot` 与 `/login/password/reset` 页。配置见 §2.3 EMAIL_*（不配即整体关闭，与 CAPTCHA 同模式）。
+> 5. **前端 mock 收口**：`lib/data.ts` 假数据全删（只留类型）；oauth-clients 页改为「规划中」空态，不再展示假应用列表。
+> 6. 测试基线：**pytest 132 例**（新增 `test_pkce.py` 9 例 + `test_password_reset.py` 8 例；删 `test_passkeys.py` 11 例），本地实测 **123 通过 / 9 失败**——失败全部为存量环境性失败（本地 `.env` 带真实 GitHub 凭据触发 consent 分流 + QQ provider mock 断言漂移，改动前后失败集合完全一致，与代码无关）。`makemigrations --check` 无漂移、`manage.py check` 0 问题。
+> 7. 三个 OAuth provider（GitHub/QQ/微信）的接入设计**未做任何改动**（用户明确要求保持现状）。
+> 8. 开发 CORS：DEBUG/TESTING 下自动放行 `localhost:5180/5173`（rank 前端 dev 直连护照换令牌用）。
+
 ---
 
 ## 0. 文档说明与阅读路径
@@ -185,7 +210,8 @@ lotus-passport/                         ← 仓库根（无总 README，本文�
 |------|------|------|------|
 | GET | `/api/v1/health/` | 公开 | 存活探针 |
 | GET | `/api/v1/oauth/<provider>/login/` | 公开 | 生成授权链接（302/JSON `authorize_url`）；未配凭据返回 400 并提示缺哪个环境变量 |
-| GET | `/api/v1/oauth/<provider>/callback/` | 公开 | OAuth 回调，换 token + 建/关联用户 + 签发 JWT（302 `#fragment` 或 JSON）。`link_mode` 时改为绑定到 state 中已存证的用户，回跳 `?bound=<provider>&status=success` |
+| GET | `/api/v1/oauth/<provider>/callback/` | 公开 | OAuth 回调，换 token + 建/关联用户 + 签发 JWT。带 `code_challenge` 时 302 `?code=`（一次性授权码，PKCE）；否则旧 302 `#fragment`（过渡兼容）或 JSON。`link_mode` 时改为绑定到 state 中已存证的用户，回跳 `?bound=<provider>&status=success` |
+| POST | `/api/v1/oauth/token/` | 公开 | **2026-08-27 新增（授权码 + PKCE）**：`{code, code_verifier}` 换取 `{access, refresh, token_type, passport_user_id}`；code 单次消费、TTL 120s，PKCE 校验失败 400 |
 | POST | `/api/v1/oauth/<provider>/bind/` | Bearer | §9.2 发起绑定：校验凭据→存 `link_mode` state（带 `passport_id`）→返回 `authorize_url`；已绑定返回 409 |
 | DELETE | `/api/v1/oauth/<provider>/` | Bearer | §9.2 解绑：删除该 provider 关联；解绑后将无任何登录方式（无密码/无 Passkey/无其它 OAuth）则 409；未绑定 404 |
 | GET | `/api/v1/oauth/accounts/` | Bearer | §9.2 列出当前用户已绑定的 provider（`provider` / `label` / `linked_at`，snake_case + ISO） |
@@ -209,21 +235,27 @@ lotus-passport/                         ← 仓库根（无总 README，本文�
 | POST | `/api/v1/login/2fa/` | 公开 | 密码登录第二步（§9.4c）：用 `pending_token` + `otp_code`/`backup_code` 换正式 token |
 | GET | `/api/v1/security/password/` | Bearer | 密码状态（has_password / password_changed_at） |
 | POST | `/api/v1/security/password/change/` | Bearer | 设/改密码（§9.4a）；OAuth-only 首次设密免 `current_password`，改密后吊销其它会话 |
+| POST | `/api/v1/security/password/reset-request/` | 公开 | **2026-08-27 新增（§9.4a reset）**：`{identifier}` 发重置邮件（一次性 token，TTL 30min）；防枚举恒 200；未配 SMTP 一律 503 |
+| POST | `/api/v1/security/password/reset/` | 公开 | **2026-08-27 新增（§9.4a reset）**：`{token, new_password}` 设新密并吊销全部会话；token 单次消费 |
+| POST | `/api/v1/security/email/send-code/` | 视 purpose | **2026-08-27 新增（邮箱验证码）**：`{email, purpose}` 发 6 位码（10min/单次/错5次作废；60s+10次/h 频控）。`login` 公开；`bind`/`new`/`old` 需登录+设备信任 |
+| POST | `/api/v1/login/email/` | 公开 | **2026-08-27 新增（邮箱验证码登录）**：`{email, code}` 登录；无账号自动注册（无密码），返回 `created` 标记 |
+| POST | `/api/v1/security/email/bind/` | Bearer | **2026-08-27 新增（首次绑定）**：`{email, code, current_password?}`；码发目标新邮箱；有密码账户验密码 |
+| POST | `/api/v1/security/email/change/` | Bearer | **2026-08-27 新增（换邮箱·双重验证）**：`{new_email, new_code, old_code, current_password?}`；新邮箱码+旧邮箱码都通过才换绑 |
 | GET | `/api/v1/security/2fa/` | Bearer | ⚠️ **已去范围**（§9.4c，2026-08-07 迁移 0005 移除，当前 404 不可用） |
 | POST | `/api/v1/security/2fa/setup/` | Bearer | ⚠️ **已去范围**（同上，不可用） |
 | POST | `/api/v1/security/2fa/enable/` | Bearer | ⚠️ **已去范围**（同上，不可用） |
 | POST | `/api/v1/security/2fa/disable/` | Bearer | ⚠️ **已去范围**（同上，不可用） |
 | GET/POST | `/api/v1/security/2fa/backup-codes/` | Bearer | ⚠️ **已去范围**（同上，不可用） |
-| GET | `/api/v1/security/passkeys/` | Bearer | 列出当前用户全部通行密钥（§9.4b，snake_case + ISO 时间：`id/name/device/added_at/last_used_at`） |
-| POST | `/api/v1/webauthn/options/register/` | Bearer | 注册仪式第 1 步：返回 registration options（含 RP id/name、已有凭据 exclude），服务端存 challenge（TTL 300s，单次使用） |
-| POST | `/api/v1/webauthn/register/` | Bearer | 注册仪式第 2 步：校验 attestation response，落库 `Passkey`；缺 `response` 或缺挑战均 400 |
-| POST | `/api/v1/webauthn/options/auth/` | 公开 | 无用户名登录第 1 步：返回 assertion options + 一次性 `state` token（绑定 challenge） |
-| POST | `/api/v1/webauthn/verify/` | 公开 | 无用户名登录第 2 步：校验 assertion，更新 sign_count/last_used_at，签发 JWT + 落登录事件；未知凭据 401、坏 state 400 |
-| DELETE | `/api/v1/webauthn/<pk>/` | Bearer | 删除指定通行密钥（owner-only，非本人 404） |
+| GET | `/api/v1/security/passkeys/` | — | 🔴 **已于 2026-08-27 砍除**（§9.4b，端点/模型/迁移 0007 删表，请求返回 404） |
+| POST | `/api/v1/webauthn/options/register/` | — | 🔴 **已于 2026-08-27 砍除**（同上，404） |
+| POST | `/api/v1/webauthn/register/` | — | 🔴 **已于 2026-08-27 砍除**（同上，404） |
+| POST | `/api/v1/webauthn/options/auth/` | — | 🔴 **已于 2026-08-27 砍除**（同上，404） |
+| POST | `/api/v1/webauthn/verify/` | — | 🔴 **已于 2026-08-27 砍除**（同上，404） |
+| DELETE | `/api/v1/webauthn/<pk>/` | — | 🔴 **已于 2026-08-27 砍除**（同上，404） |
 
 > ⚠️ **文档缺口（历史）**：根 README §2.1 的"主要端点"表只列了前 6 个，原漏列根路径 JWKS、passport-configuration、dev/status、dev/login；本表已补全，并**随 §9 Phase 1 落地新增** `/profile/`、`/devices/`、`/sessions/`、`/security/login-history/`。上表为权威版。
 > 📌 **命名约定（§9.4a/c）**：账户安全端点统一挂在 `/api/v1/security/` 下（与既有 `/security/login-history/` 一致），故 2FA 用 `/security/2fa/` 而非 HANDOVER §9.4c 草稿里的 `/2fa/`。如想改回 `/2fa/`，仅动 `urls.py` 路由前缀，视图/逻辑不动。
-> 📌 **密码重置（reset）本轮未做**：§9.4a 草稿列了 `POST /security/password/reset/`（邮件重置），依赖 §9.7 通知网关，本轮只做 set/change（§9.4a 决策 q-3）。
+> 📌 ~~**密码重置（reset）本轮未做**~~ **✅ 已于 2026-08-27 落地**：免费 SMTP（不配即整体 503 关闭）+ Redis 一次性 token，端点见上表 reset-request / reset；不再依赖 §9.7 通知网关。
 > ⚠️ `passport_configuration` 故意**不**挂在 `/.well-known/openid-configuration`（✅ 见 `views.py` 注释）：本中心不是完整 OIDC Provider（无 `id_token`、无 `/token` grant）， squat 该路径会让通用 OIDC 客户端误判。
 
 ### 2.3 配置项说明（环境变量全表）
@@ -1006,8 +1038,8 @@ lib/
 > | §9.1 基本资料 | `profile/basic` | ✅ 已完成（GET/PATCH /profile/ + userinfo 扩字段，加密 phone） |
 > | §9.2 OAuth 绑定/解绑 | `profile/oauth` | 🟡 部分推进：GitHub ✅ 已完成（绑定/解绑/列表 + 冲突与解绑保护，见 §9.2）；QQ ✅ 已完成（登录与回调可用）；微信 ⬜ 暂缓（腾讯要求正式上线后实施，见 §2.4/§9.2） |
 > | §9.3 授权设备 | `profile/devices` | ✅ 已完成（GET /devices/ + PATCH/DELETE /devices/&lt;id&gt;/） |
-> | §9.4a 密码 | security | ✅ 已完成（`POST /api/v1/login/` 密码登录 + `GET/POST /security/password/`（change，OAuth-only 首次设密免 step-up，改密吊销其它会话）；reset 依赖 §9.7 留待后续） |
-> | §9.4b Passkey | security | 🟡 部分（`/security/passkeys/` 列表 + `/webauthn/options/auth`、`/verify/`、`DELETE /webauthn/<id>/` 仍可用；注册端点 `/webauthn/options/register`、`/register/` 自 2026-08-08 起因安全考量返回 501「当前功能待开发」；`Passkey` 模型 + 0004 迁移；py_webauthn 3.0.0，纯本地无外部服务依赖） |
+> | §9.4a 密码 | security | ✅ 已完成（`POST /api/v1/login/` 密码登录 + `GET/POST /security/password/`（change，OAuth-only 首次设密免 step-up，改密吊销其它会话）；**reset 已于 2026-08-27 落地**：免费 SMTP + 一次性 token，见 §2.2 端点表） |
+> | §9.4b Passkey | security | 🔴 **已于 2026-08-27 正式砍除**（用户决策）：端点/模型（迁移 0007 删表）/`webauthn.py`/`py_webauthn` 依赖/前端 UI 全删，请求 404 |
 > | §9.4c TOTP 2FA | security | ⬜ **已去范围**（2026-08-07 迁移 `0005` 删除 `totp_secret_enc`/`two_factor_enabled`/`BackupCode`，代码与端点已整体移除；设计记录保留在 §9.4c，当前不可用。详见附录 A-13） |
 > | §9.4d 活跃会话 | security | ✅ 已完成（GET /sessions/ 标 current + DELETE 单/批量吊销，复用 jti 黑名单） |
 > | §9.4e 登录历史 | security | ✅ 已完成（GET /security/login-history/，登录链路已落 LoginEvent） |
