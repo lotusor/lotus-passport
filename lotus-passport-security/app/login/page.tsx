@@ -8,6 +8,8 @@ import {
   getOAuthLoginUrl,
   fetchDevStatus,
   getDevLoginUrl,
+  stashGenericTicket,
+  continueGenericLogin,
 } from "@/lib/passport-api";
 import { createPkcePair } from "@/lib/pkce";
 import { Sparkles } from "@/components/icons";
@@ -55,9 +57,22 @@ export default function LoginPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [devProviders, setDevProviders] = React.useState<string[]>([]);
 
-  // 已登录 → 直接跳走（落地到资料主页，便于首次 OAuth 登录后引导设置账号名/密码）
+  // 通用 OAuth 入口：暂存接入方带来的 ?oticket=（跨登录子页存续）
   React.useEffect(() => {
-    if (user) router.replace("/profile/basic");
+    const t = new URLSearchParams(window.location.search).get("oticket");
+    if (t) stashGenericTicket(t);
+  }, []);
+
+  // 已登录 → 优先续行通用登录流程（有 oticket 时回接入方），否则跳资料主页
+  React.useEffect(() => {
+    if (!user) return;
+    const at =
+      typeof window !== "undefined"
+        ? localStorage.getItem("passport_access") || ""
+        : "";
+    continueGenericLogin(at).then((taken) => {
+      if (!taken) router.replace("/profile/basic");
+    });
   }, [user, router]);
 
   // 探测后端是否开启了模拟登录（仅本地开发；生产返回空数组）
@@ -115,10 +130,29 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-[100dvh] items-center justify-center px-4">
-      <div className="w-full max-w-[400px]">
+      <div className="w-full max-w-[400px] anim-fade-up">
         {/* Brand */}
         <div className="mb-10 text-center">
-          <span className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-accent text-white shadow-lg">
+          <style jsx>{`
+            .brand-float {
+              animation: floaty 4s ease-in-out infinite;
+            }
+            @keyframes floaty {
+              0%,
+              100% {
+                transform: translateY(0);
+              }
+              50% {
+                transform: translateY(-6px);
+              }
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .brand-float {
+                animation: none;
+              }
+            }
+          `}</style>
+          <span className="brand-float mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-accent text-white shadow-lg">
             <Sparkles className="h-7 w-7" />
           </span>
           <h1 className="text-2xl font-bold tracking-tight text-ink">
@@ -137,7 +171,7 @@ export default function LoginPage() {
         )}
 
         {/* OAuth buttons */}
-        <div className="space-y-3">
+        <div className="space-y-3 anim-fade-up" style={{ animationDelay: "80ms" }}>
           {providers.map((p) => (
             <button
               key={p.id}

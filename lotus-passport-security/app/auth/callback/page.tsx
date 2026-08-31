@@ -3,7 +3,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { exchangeAuthToken, fetchUserInfo, type UserInfo } from "@/lib/passport-api";
+import { exchangeAuthToken, fetchUserInfo, type UserInfo,
+  continueGenericLogin,
+} from "@/lib/passport-api";
 import { takeVerifier } from "@/lib/pkce";
 import { Avatar } from "@/components/Avatar";
 import { Check, X, Sparkles } from "@/components/icons";
@@ -126,6 +128,8 @@ export default function AuthCallbackPage() {
     setMessage("正在完成登录...");
     try {
       await login(tokens.access, tokens.refresh);
+      // 通用 OAuth 入口：有 oticket 时回接入方而非资料页
+      if (await continueGenericLogin(tokens.access)) return;
       // login() 已存储令牌并设置 user，auth 上下文会驱动跳转；这里兜底一次。
       router.replace("/profile/security");
     } catch (err: unknown) {

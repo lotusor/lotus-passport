@@ -4,7 +4,9 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { emailLogin, sendEmailCode } from "@/lib/passport-api";
+import { emailLogin, sendEmailCode,
+  continueGenericLogin,
+} from "@/lib/passport-api";
 import { Sparkles } from "@/components/icons";
 
 function ArrowLeftIcon({ className }: { className?: string }) {
@@ -72,6 +74,8 @@ export default function EmailLoginPage() {
     try {
       const tokens = await emailLogin(email.trim(), code.trim());
       await login(tokens.access, tokens.refresh);
+      // 通用 OAuth 入口：有 oticket 时回接入方而非资料页
+      if (await continueGenericLogin(tokens.access)) return;
       router.replace("/profile/basic");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "登录失败，请稍后重试");

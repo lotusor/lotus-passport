@@ -50,6 +50,19 @@ urlpatterns = [
         views.OAuthAccountsView.as_view(),
         name="oauth-accounts",
     ),
+    # Provider-agnostic generic login entry — same ordering caveat as above:
+    # must precede the <provider> catch-all, else "login" would be parsed as
+    # a provider name.
+    path(
+        "api/v1/oauth/login/",
+        views.OAuthGenericLoginView.as_view(),
+        name="oauth-generic-login",
+    ),
+    path(
+        "api/v1/oauth/continue/",
+        views.OAuthContinueView.as_view(),
+        name="oauth-continue",
+    ),
     path(
         "api/v1/oauth/<str:provider>/",
         views.OAuthUnbindView.as_view(),

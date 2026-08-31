@@ -4,7 +4,9 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { passwordLogin, ApiException } from "@/lib/passport-api";
+import { passwordLogin, ApiException,
+  continueGenericLogin,
+} from "@/lib/passport-api";
 import { Sparkles, Eye, EyeOff } from "@/components/icons";
 
 const HCAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY;
@@ -124,6 +126,8 @@ export default function PasswordLoginPage() {
         captchaToken || undefined
       );
       await login(tokens.access, tokens.refresh);
+      // 通用 OAuth 入口：有 oticket 时回接入方而非资料页
+      if (await continueGenericLogin(tokens.access)) return;
       router.replace("/profile/basic");
     } catch (err: unknown) {
       if (

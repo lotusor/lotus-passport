@@ -66,6 +66,7 @@ from .providers import (
 from .ratelimit import (
     AuthCodeStore,
     EmailCodeStore,
+    GenericLoginTicketStore,
     OAuthStateStore,
     PendingConsentStore,
     AccountLockout,
@@ -2140,3 +2141,89 @@ def jwks_view(request):
     if not keys:
         return JsonResponse({"error": "no public key configured"}, status=404)
     return JsonResponse({"keys": keys})
+
+
+class OAuthGenericLoginView(APIView):
+    """Provider-agnostic OAuth entry（GET /api/v1/oauth/login/）。
+
+    接入方希望把整个登录体验交给护照时，从这里取一次性票据并跳转
+    passport-web 登录页；用户以任意方式（本地邮箱/密码、第三方）登录后，
+    web 调 POST /api/v1/oauth/continue/ 换取发往接入方的单次授权码。
+    """
+
+    authentication_classes: list = []  # public endpoint
+    permission_classes: list = []
+
+    def get(self, request):
+        if not check_rate_limit(request, *settings.RATE_LIMIT_LOGIN, scope="oauth-login"):
+            return Response(
+                {"error": {"code": 429, "message": "请求过于频繁，请稍后再试"}},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        redirect_uri = request.GET.get("redirect_uri", "")
+        if not is_redirect_uri_allowed(redirect_uri):
+            return Response(
+                {
+                    "error": {
+                        "code": 400,
+                        "message": (
+                            "redirect_uri 不在允许列表中，请管理员在 "
+                            "OAUTH_ALLOWED_REDIRECT_URIS 中配置该回跳地址"
+                        ),
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        challenge, method = validate_code_challenge(
+            request.GET.get("code_challenge"),
+            request.GET.get("code_challenge_method"),
+        )
+        ticket = GenericLoginTicketStore().save(
+            redirect_uri=redirect_uri,
+            code_challenge=challenge or None,
+            code_challenge_method=method or None,
+        )
+        # passport-web 登录页地址由授权确认页基地址推导（同 origin）
+        web_origin = settings.OAUTH_CONSENT_PAGE_BASE.split("/oauth/")[0]
+        return Response(
+            {"login_url": f"{web_origin}/login?oticket={ticket}"}, status=200
+        )
+
+
+class OAuthContinueView(APIView):
+    """用通用登录票据 + web 会话 JWT 换发往接入方的单次授权码。
+
+    POST /api/v1/oauth/continue/ {ticket}，需携带 passport-web 登录后的
+    ``Authorization: Bearer <access>``。响应为接入方 redirect_url（携带
+    一次性 code；入口带 PKCE challenge 时 code 与之绑定）。
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        ticket = str((request.data or {}).get("ticket", ""))
+        payload = GenericLoginTicketStore().consume(ticket) if ticket else None
+        if not payload:
+            return Response(
+                {"error": {"code": 400, "message": "登录票据无效或已过期，请重新发起登录"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        redirect_uri = payload.get("redirect_uri", "")
+        if not is_redirect_uri_allowed(redirect_uri):
+            return Response(
+                {"error": {"code": 400, "message": "redirect_uri 不在允许列表中"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        tokens = issue_tokens(request.user, audience=_origin_of(redirect_uri))
+        code = AuthCodeStore().save(
+            access=tokens["access"],
+            refresh=tokens["refresh"],
+            token_type=tokens["token_type"],
+            passport_user_id=tokens["passport_user_id"],
+            code_challenge=payload.get("code_challenge"),
+            code_challenge_method=payload.get("code_challenge_method"),
+        )
+        sep = "&" if "?" in redirect_uri else "?"
+        return Response(
+            {"redirect_url": f"{redirect_uri}{sep}code={code}"}, status=200
+        )

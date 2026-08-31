@@ -680,3 +680,47 @@ export async function changeEmail(
     token
   );
 }
+// ---------- 通用（provider 无关）OAuth 登录入口 ----------
+const GENERIC_TICKET_KEY = "oauth_generic_ticket";
+
+/** 登录页读取 ?oticket= 后暂存（跨 /login/password、/login/email 子页存续） */
+export function stashGenericTicket(ticket: string) {
+  try {
+    sessionStorage.setItem(GENERIC_TICKET_KEY, ticket);
+  } catch {}
+}
+
+/**
+ * 登录成功后调用：若存在通用登录票据，则用当前会话换取接入方回调地址并
+ * 整页跳转。返回 true 表示已接管跳转，调用方应中止自身的路由跳转。
+ */
+export async function continueGenericLogin(accessToken: string): Promise<boolean> {
+  const ticket = (() => {
+    try {
+      return sessionStorage.getItem(GENERIC_TICKET_KEY);
+    } catch {
+      return null;
+    }
+  })();
+  if (!ticket || !accessToken) return false;
+  try {
+    const resp = await fetch(`${API_BASE}/api/v1/oauth/continue/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ ticket }),
+    });
+    if (!resp.ok) return false;
+    const data = (await resp.json()) as { redirect_url?: string };
+    if (!data?.redirect_url) return false;
+    try {
+      sessionStorage.removeItem(GENERIC_TICKET_KEY);
+    } catch {}
+    window.location.href = data.redirect_url;
+    return true;
+  } catch {
+    return false;
+  }
+}

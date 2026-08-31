@@ -472,3 +472,50 @@ def validate_code_challenge(
     if not re.fullmatch(r"[A-Za-z0-9\-._~]+", challenge):
         return None
     return (challenge, method)
+
+
+class GenericLoginTicketStore:
+    """One-time ticket for the *provider-agnostic* OAuth entry.
+
+    ``GET /api/v1/oauth/login/`` mints a ticket bound to the integrating
+    app's redirect_uri (+ optional PKCE challenge) and hands back a
+    passport-web login URL. After the user signs in on the passport web
+    (in whichever way they prefer), ``POST /api/v1/oauth/continue/``
+    exchanges the ticket — together with the web session's JWT — for a
+    single-use authorization code bounced to the app. TTL 600s, single-use.
+    """
+
+    PREFIX = "oauth:generic:"
+    TTL = 600
+
+    def __init__(self, client: Any | None = None) -> None:
+        self.client = client or get_redis()
+
+    def save(
+        self,
+        *,
+        redirect_uri: str,
+        code_challenge: str | None,
+        code_challenge_method: str | None,
+    ) -> str:
+        ticket = secrets.token_urlsafe(32)
+        payload = json.dumps(
+            {
+                "redirect_uri": redirect_uri,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method,
+            }
+        )
+        self.client.setex(self.PREFIX + ticket, self.TTL, payload)
+        return ticket
+
+    def consume(self, ticket: str) -> dict | None:
+        key = self.PREFIX + ticket
+        raw = self.client.get(key)
+        if not raw:
+            return None
+        self.client.delete(key)
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return None
