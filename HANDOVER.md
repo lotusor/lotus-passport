@@ -18,6 +18,10 @@
 > - **预留项**：Next 14.2.35 的 2 个 high 公告仍为已知可接受风险（§7.7）。
 > - 前端模块的详细状态、待办、技术栈与代码结构见 **§8**；后端待建能力清单与进度见 **§9**。
 
+> ## 📌 2026-08-31 通用（provider 无关）OAuth 登录入口（接入方交出整个登录体验）
+>
+> 接入方（E-algo Rank）登录/注册页只放「莲花通行证」单一入口，不再罗列登录方式。新端点：`GET /api/v1/oauth/login/`（签发一次性票据 oauth:generic:\<ticket\> TTL 600s 单次消费，返回 web 登录页 URL）+ `POST /api/v1/oauth/continue/`（web 会话 JWT + 票据 → 按入口 PKCE/redirect_uri origin audience 签发发往接入方的单次授权码）。web /login 支持 `?oticket=`（sessionStorage 暂存跨子页），密码/邮箱验证码/OAuth 回调三个成功落点优先续行回接入方；登录页加入场 fade-up/品牌浮动动效（尊重 reduced-motion）。**路由**：oauth/login/、oauth/continue/ 须置于 `<provider>` 通配之前。测试 `test_generic_login.py` 6 例全过。commit `831ce33`。
+>
 > ## 📌 2026-08-27（第二批）邮箱验证码体系：强制邮箱 / 邮箱即登录即注册 / 双重验证换邮箱
 >
 > 前提：Resend SMTP 已配置（同日第一批），具备真实发信能力。用户需求：① 注册强制提供邮箱（密码找回的基础）；② 前后端支持更改邮箱（需验证码）；③ 邮箱成为独立注册入口；④ 修复登录页"忘记密码"与"邮箱验证码登录"不对齐。
