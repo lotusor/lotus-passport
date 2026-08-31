@@ -1118,7 +1118,14 @@ class AvatarUploadView(APIView):
             img = Image.open(upload)
             img.verify()  # 先确认是合法图像（不读像素）
             upload.seek(0)
-            img = Image.open(upload).convert("RGBA")
+            img = Image.open(upload)
+            # 防解压炸弹：限制源图像素（128KB 高压缩图可解出数亿像素撑爆内存）
+            if img.width * img.height > 24_000_000:  # 约 6000x4000
+                return Response(
+                    {"error": {"code": 413, "message": "图片分辨率过高"}},
+                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                )
+            img = img.convert("RGBA")
         except Exception:  # noqa: BLE001
             return Response(
                 {"error": {"code": 415, "message": "图片文件已损坏或无法解析"}},
@@ -1624,11 +1631,11 @@ class PasswordResetRequestView(APIView):
             except Exception:  # noqa: BLE001 — SMTP 故障不向调用方暴露细节
                 sent = False
 
-        # 防枚举：存在/不存在/发送失败 一律同一句 200 文案。
+        # 防枚举：存在/不存在/发送失败 一律同一句 200 文案，且不携带任何
+        # 可区分字段（曾暴露 sent 布尔值，被用于枚举注册邮箱）。
         return Response(
             {
                 "detail": "如果该账户存在且绑定了邮箱，重置邮件已发送，请注意查收（含垃圾邮件箱）。",
-                "sent": sent,
             },
             status=status.HTTP_200_OK,
         )
@@ -2161,14 +2168,35 @@ class OAuthGenericLoginView(APIView):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
         redirect_uri = request.GET.get("redirect_uri", "")
-        if not is_redirect_uri_allowed(redirect_uri):
+        # 通用入口发放的授权码会发往该地址：使用**独立精确白名单**
+        # （OAUTH_GENERIC_ALLOWED_REDIRECT_URIS，逐条精确匹配）。origin 级
+        # 匹配会为授权码注入留口子（接入方域内任意可控路径都可能接码）；
+        # 未配置该白名单时通用入口整体拒绝（安全默认）。
+        allowed = {
+            u.strip().rstrip("/")
+            for u in getattr(settings, "OAUTH_GENERIC_ALLOWED_REDIRECT_URIS", []) or []
+        }
+        # 测试/本地开发：localhost 与全局白名单行为保持一致
+        from urllib.parse import urlparse as _urlparse
+
+        from .redirects import _is_localhost
+
+        parsed_cb = _urlparse(redirect_uri)
+        if (
+            redirect_uri
+            and parsed_cb.scheme in ("http", "https")
+            and (getattr(settings, "DEBUG", False) or getattr(settings, "TESTING", False))
+            and _is_localhost(parsed_cb.hostname)
+        ):
+            allowed = allowed | {redirect_uri.rstrip("/")}
+        if not redirect_uri or redirect_uri.rstrip("/") not in allowed:
             return Response(
                 {
                     "error": {
                         "code": 400,
                         "message": (
                             "redirect_uri 不在允许列表中，请管理员在 "
-                            "OAUTH_ALLOWED_REDIRECT_URIS 中配置该回跳地址"
+                            "OAUTH_ALLOWED_REDIRECT_URIS 中配置精确回跳地址"
                         ),
                     }
                 },

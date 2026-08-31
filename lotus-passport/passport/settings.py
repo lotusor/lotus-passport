@@ -387,6 +387,16 @@ OAUTH_ALLOWED_REDIRECT_URIS = [
     o.strip() for o in env("OAUTH_ALLOWED_REDIRECT_URIS", "").split(",") if o.strip()
 ]
 
+# 通用（provider 无关）登录入口的**精确**回调白名单。
+# 与 OAUTH_ALLOWED_REDIRECT_URIS（origin 级）不同：通用入口发放的授权码会
+# 直接发往该地址，origin 匹配会为授权码注入留口子，故必须逐条精确配置；
+# 未配置时通用入口整体拒绝（安全默认）。
+OAUTH_GENERIC_ALLOWED_REDIRECT_URIS = [
+    o.strip()
+    for o in env("OAUTH_GENERIC_ALLOWED_REDIRECT_URIS", "").split(",")
+    if o.strip()
+]
+
 # Server-side token revocation (real logout). When True, POST /api/v1/logout/
 # adds the token's jti to a Redis blacklist and /api/v1/userinfo/ rejects a
 # revoked jti. Integrators that verify tokens OFFLINE (via JWKS) only stop

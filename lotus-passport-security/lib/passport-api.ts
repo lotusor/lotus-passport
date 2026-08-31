@@ -714,11 +714,18 @@ export async function continueGenericLogin(accessToken: string): Promise<boolean
     });
     if (!resp.ok) return false;
     const data = (await resp.json()) as { redirect_url?: string };
-    if (!data?.redirect_url) return false;
+    // 防御纵深：仅接受 https（或本地开发 http://localhost）回调
+    const url = data?.redirect_url;
+    const isLocal =
+      !!url &&
+      (url.startsWith("http://localhost:") || url.startsWith("http://127.0.0.1:"));
+    if (!url || (!url.startsWith("https://") && !isLocal)) {
+      return false;
+    }
     try {
       sessionStorage.removeItem(GENERIC_TICKET_KEY);
     } catch {}
-    window.location.href = data.redirect_url;
+    window.location.href = url;
     return true;
   } catch {
     return false;

@@ -40,8 +40,17 @@ class TrustedProxyMiddleware(MiddlewareMixin):
         remote = request.META.get("REMOTE_ADDR", "")
         xff = request.META.get("HTTP_X_FORWARDED_FOR")
         if self._trusted(remote, self.cidrs) and xff:
-            # First XFF hop is the real client behind our proxy.
-            request.META["REMOTE_ADDR"] = xff.split(",")[0].strip()
+            # XFF 追加语义下「哪一段是真实客户端」取决于可信代理层数。
+            # 稳健做法：从最后一跳向前回溯、跳过可信代理 IP，第一个非可信
+            # 地址即真实客户端——既兼容多层可信代理，又防止客户端伪造首段
+            # 污染限流与登录审计。
+            hops = [h.strip() for h in xff.split(",") if h.strip()]
+            real = hops[-1] if hops else remote
+            for hop in reversed(hops):
+                if not self._trusted(hop, self.cidrs):
+                    real = hop
+                    break
+            request.META["REMOTE_ADDR"] = real
         else:
             # Untrusted peer: never believe a client-supplied XFF.
             request.META.pop("HTTP_X_FORWARDED_FOR", None)
