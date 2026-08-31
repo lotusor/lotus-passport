@@ -4,8 +4,11 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { passwordLogin, ApiException,
+import {
+  passwordLogin,
+  ApiException,
   continueGenericLogin,
+  stashGenericTicket,
 } from "@/lib/passport-api";
 import { Sparkles, Eye, EyeOff } from "@/components/icons";
 
@@ -49,6 +52,9 @@ export default function PasswordLoginPage() {
 
   // 已登录 → 直接跳走
   React.useEffect(() => {
+    // 通用 OAuth 入口：直达本子页时也会带 ?oticket=，先暂存
+    const t = new URLSearchParams(window.location.search).get("oticket");
+    if (t) stashGenericTicket(t);
     if (user) router.replace("/profile/basic");
   }, [user, router]);
 
