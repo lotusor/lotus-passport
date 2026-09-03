@@ -58,7 +58,7 @@ services:
       PORT: "3000"
     healthcheck:
       # Next.js 在没有 build 错误时对任意 GET 都返回 HTML。
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "node -e \"const http=require('http');http.get('http://127.0.0.1:3000/',r=>process.exit(r.statusCode>=200&&r.statusCode<400?0:1)).on('error',()=>process.exit(1))\""]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -77,6 +77,7 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
     restart: unless-stopped
 
 volumes:

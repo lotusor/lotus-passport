@@ -18,6 +18,31 @@
 > - **预留项**：Next 14.2.35 的 2 个 high 公告仍为已知可接受风险（§7.7）。
 > - 前端模块的详细状态、待办、技术栈与代码结构见 **§8**；后端待建能力清单与进度见 **§9**。
 
+> ## 📌 2026-09-03 eacm.cn 主站门户 + 缓存治理 + nginx 回同步（commit `79d0265`）
+>
+> 1. **主站门户**：`eacm.cn` 由此前静态占位页重写为深色终端风单页门户（`nginx/html/index.html`，22.5KB 单文件无构建）。深墨底 + 网格 + JetBrains Mono 点缀，卡片深色玻璃拟态；favicon/导航/Rank 入口统一用新图标 `icon.png`（256px 蓝色 E-algo logo）；入口区三卡——通行证与 E-algo Rank 平级双主入口 + 博客 `https://lotusor.github.io/`；服务状态终端面板只保留 `ping passport.eacm.cn` / `ping rank.eacm.cn`（浏览器 `fetch no-cors` 活性探测 + 延迟）；赛季亮点模块 `fetch rank /api/v1/season/`，CORS 不通时走内置快照兜底并标注 `· snapshot`。
+> 2. **缓存治理**：修「改动未生效」——旧 `index.html` 无 Cache-Control 头导致浏览器启发式缓存压住新页面。eacm.cn server 块新增 `~* \.html$` location（`Cache-Control: no-cache, must-revalidate` + ETag 走 304）与静态资源 location（`expires 1h`）。用户需强刷一次拿到新头，之后自动 revalidate。
+> 3. **实时数据打通**：rank `.env.prod` 的 `CORS_ALLOWED_ORIGINS` 追加 `https://eacm.cn` 并重建 backend；实测 `Origin: https://eacm.cn` 请求 `/api/v1/season/` 已返回 `access-control-allow-origin: https://eacm.cn`，门户快照标注转为 `· live`。
+> 4. **仓库回同步**：服务器 `nginx/html/`（index.html / icon.png / beian.png / openapi.yaml / dev-docs）、`nginx.conf`、`docker-compose.yml`（补 `./nginx/html` 挂载）此前仅存服务器、本地无副本，已全部回同步到本地仓库。⚠️ `docker-compose.yml` 改动**尚未提交**（工作树脏），`nginx/html/` 仍为未跟踪状态。
+> 5. **域名验证文件**：`eacm.cn` 裸域有用户自配的专属门户 server 块（比 passport 块更精确匹配），加配置前必查全；本批另部署了域名归属验证文件。
+
+> ## 📌 2026-09-03 安全审计修复（commit `e518174`，与 rank `6d9c7f8` 同批）
+>
+> 三路并行审计（rank 后端 / passport 全栈 / 双前端）+ 生产 nginx 核查，passport 侧修复：① 密码重置防枚举被 `sent` 字段击穿 → 响应移除 `sent`；② 通用登录票据不绑定目标路径（授权码注入面）→ 独立精确白名单 `OAUTH_GENERIC_ALLOWED_REDIRECT_URIS`（生产=rank callback，未配置整体拒绝）；③ XFF 取首段可伪造（污染限流/审计）→ 回溯跳过可信代理取第一个非可信地址；④ 头像解压炸弹 → 24M 像素上限；⑤ `continue` 回调 https 兜底校验。**遗留**：`ROTATE_REFRESH_TOKENS=False`、无密码账户敏感操作无 step-up、设备信任基于 UA 指纹可伪造、旧 fragment 回调仍兼容、Next 14.2.35 两个 high 公告（已评估接受）。
+
+> ## 📌 2026-09-03 PKCE verifier 双写短期 cookie 兜底（commit `9807b64`）
+>
+> 移动端浏览器跨站跳转丢失 `sessionStorage` 导致 PKCE `code_verifier` 丢失、登录回跳失败。改为**双写**：`sessionStorage` + 15min `SameSite=Lax` cookie；读取时 sessionStorage 优先、cookie 补位，消费后双清。⚠️ 通用教训：OAuth/PKCE verifier 不要只存 sessionStorage（rank 侧同修）。
+
+> ## 🔍 2026-09-04 文档核对（本次）
+>
+> 对总文档与本文件做「声称 vs 实际」实测核对，passport 侧结论：
+> - **测试基线复核**：pytest **150 收集 / 141 过 / 9 存量环境失败**（与总文档快照一致）。失败集合：`test_oauth_real_config` 5 例（本地 `.env` 真实 GitHub 凭据触发 consent 分流）+ `test_providers` QQ 3 例（mock 断言漂移）+ `test_security::test_callback_honours_state_stored_redirect_uri` 1 例。
+> - **生产一致性**：`nginx/html/index.html`（md5 `ab982a34…`）本地 == 服务器；`nginx.conf` 内容一致（仅行尾差异）；7 容器全 Up、`nginx -t` 通过、四域名可达。
+> - **🔧 修复**：本地 `nginx/nginx.conf` **第 1 行曾被污染为 `=== EXIT: 0 ===`**（回同步时误写入脚本 stdout 前缀），已删除。该文件是生产配置的本地副本，据此重建容器会导致 nginx 启动失败。
+> - **证书**：`*.eacm.cn` 通配证书 **2026-11-08 到期**，acme.sh 已装但从未签发（仅 `account.conf`），无自动续期 —— 列为总文档 P0-4。
+> - ⚠️ 本文件顶部记录此前停在 2026-08-31，上述三批（09-01 / 09-03 ×2）现补录于此。
+
 > ## 📌 2026-08-31 通用（provider 无关）OAuth 登录入口（接入方交出整个登录体验）
 >
 > 接入方（E-algo Rank）登录/注册页只放「莲花通行证」单一入口，不再罗列登录方式。新端点：`GET /api/v1/oauth/login/`（签发一次性票据 oauth:generic:\<ticket\> TTL 600s 单次消费，返回 web 登录页 URL）+ `POST /api/v1/oauth/continue/`（web 会话 JWT + 票据 → 按入口 PKCE/redirect_uri origin audience 签发发往接入方的单次授权码）。web /login 支持 `?oticket=`（sessionStorage 暂存跨子页），密码/邮箱验证码/OAuth 回调三个成功落点优先续行回接入方；登录页加入场 fade-up/品牌浮动动效（尊重 reduced-motion）。**路由**：oauth/login/、oauth/continue/ 须置于 `<provider>` 通配之前。测试 `test_generic_login.py` 6 例全过。commit `831ce33`。
