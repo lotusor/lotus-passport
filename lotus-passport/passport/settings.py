@@ -215,7 +215,14 @@ if DEBUG or TESTING:
         "http://localhost:5173",  # Vite 默认端口（备用）
     ]
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_HEADERS = ["authorization", "content-type", "x-requested-with"]
+# 注意变量名是 CORS_ALLOW_HEADERS（django-cors-headers 读取项）。此前误写为
+# CORS_ALLOWED_HEADERS 未生效，默认放行列表不含 X-Device-Id——而集成契约要求
+# 接入方所有请求携带 X-Device-Id，导致 rank 等跨域接入方在 access 过期后的
+# 刷新请求被浏览器 CORS 拦截（预检 200 但 POST 被拦），表现为登录态约 30 分钟
+# 即"自动过期"。修复：默认头 + x-device-id。
+from corsheaders.defaults import default_headers as _cors_default_headers
+
+CORS_ALLOW_HEADERS = list(_cors_default_headers) + ["x-device-id"]
 
 # --------------------------------------------------------------------------- #
 # OAuth 授权确认页（外部应用接入时展示的"是否授权"中间页）
