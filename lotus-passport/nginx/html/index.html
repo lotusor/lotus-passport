@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a0d12">
 <title>eacm · 统一认证与项目门户</title>
 <meta name="description" content="eacm 统一身份认证与项目入口，一处登录，畅享所有服务。">
 <link rel="icon" type="image/png" href="/icon.png">
@@ -10,9 +11,25 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<script>document.documentElement.className = "js";</script>
+<script>
+/* 主题判定必须早于首屏绘制，否则会闪白/闪黑（FOUC） */
+(function () {
+  var root = document.documentElement, t = "dark";
+  try {
+    var saved = localStorage.getItem("eacm-theme");
+    t = (saved === "light" || saved === "dark") ? saved
+      : (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  } catch (e) {}
+  root.setAttribute("data-theme", t);
+  root.className = "js";
+  var m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute("content", t === "light" ? "#f6f2e9" : "#0a0d12");
+})();
+</script>
 <style>
   :root{
+    color-scheme:dark;
+
     --bg:#0a0d12;
     --panel:rgba(16,21,29,.55);
     --panel-strong:rgba(19,25,35,.78);
@@ -27,10 +44,79 @@
     --accent-soft:rgba(61,139,255,.14);
     --ok:#34d399;
     --err:#f25555;
+
+    /* --- 主题化扩展令牌（浅色主题会整套覆盖） --- */
+    --accent-rgb:61,139,255;
+    --accent-2-rgb:79,195,247;
+    --ok-rgb:52,211,153;
+    --on-accent:#fff;
+    --tint:rgba(255,255,255,.03);
+    --hairline:rgba(255,255,255,.12);
+    --seg-off:rgba(255,255,255,.09);
+    --grid-line:rgba(61,139,255,.05);
+    --glow-a:rgba(61,139,255,.14);
+    --glow-b:rgba(79,195,247,.09);
+    --grad-btn:linear-gradient(120deg,#2f6fe4,#3d8bff);
+    --grad-icon:linear-gradient(135deg,#2f6fe4,#4fc3f7);
+    --shadow-term:0 24px 60px -30px rgba(0,0,0,.7);
+
     --mono:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --sans:"Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     --radius:14px;
   }
+
+  /* ===== 浅色主题 · 纸感终端：暖纸白底 + 暖墨黑字，保留终端气质 ===== */
+  :root[data-theme="light"]{
+    color-scheme:light;
+
+    --bg:#f6f2e9;
+    --panel:rgba(255,253,248,.74);
+    --panel-strong:rgba(255,254,251,.94);
+    --panel-solid:#fffdf8;
+    --line:rgba(72,58,38,.14);
+    --line-soft:rgba(72,58,38,.09);
+    --text:#2a241c;
+    --muted:#6a6055;
+    --dim:#9a8e7c;
+    --accent:#1f6feb;
+    --accent-2:#0f7fa8;
+    --accent-soft:rgba(31,111,235,.09);
+    --ok:#158a5e;
+    --err:#c0392b;
+
+    --accent-rgb:31,111,235;
+    --accent-2-rgb:15,127,168;
+    --ok-rgb:21,138,94;
+    --on-accent:#fff;
+    --tint:rgba(72,58,38,.035);
+    --hairline:rgba(72,58,38,.20);
+    --seg-off:rgba(72,58,38,.13);
+    --grid-line:rgba(31,111,235,.055);
+    --glow-a:rgba(31,111,235,.10);
+    --glow-b:rgba(15,127,168,.07);
+    --grad-btn:linear-gradient(120deg,#1a63d8,#2f86ff);
+    --grad-icon:linear-gradient(135deg,#1f6feb,#38b6e0);
+    --shadow-term:0 24px 60px -34px rgba(72,58,38,.30);
+  }
+
+  /* 无 JS 兜底：未写入 data-theme 时跟随系统 */
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme]){
+      color-scheme:light;
+      --bg:#f6f2e9; --panel:rgba(255,253,248,.74); --panel-strong:rgba(255,254,251,.94);
+      --panel-solid:#fffdf8; --line:rgba(72,58,38,.14); --line-soft:rgba(72,58,38,.09);
+      --text:#2a241c; --muted:#6a6055; --dim:#9a8e7c;
+      --accent:#1f6feb; --accent-2:#0f7fa8; --accent-soft:rgba(31,111,235,.09);
+      --ok:#158a5e; --err:#c0392b;
+      --accent-rgb:31,111,235; --accent-2-rgb:15,127,168; --ok-rgb:21,138,94;
+      --tint:rgba(72,58,38,.035); --hairline:rgba(72,58,38,.20); --seg-off:rgba(72,58,38,.13);
+      --grid-line:rgba(31,111,235,.055); --glow-a:rgba(31,111,235,.10); --glow-b:rgba(15,127,168,.07);
+      --grad-btn:linear-gradient(120deg,#1a63d8,#2f86ff);
+      --grad-icon:linear-gradient(135deg,#1f6feb,#38b6e0);
+      --shadow-term:0 24px 60px -34px rgba(72,58,38,.30);
+    }
+  }
+
   *{box-sizing:border-box}
   html,body{margin:0}
   body{
@@ -45,8 +131,8 @@
   body::before{
     content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     background-image:
-      linear-gradient(rgba(61,139,255,.05) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(61,139,255,.05) 1px, transparent 1px);
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size:44px 44px;
     mask-image:radial-gradient(70rem 50rem at 50% 0%, #000 0%, transparent 78%);
     -webkit-mask-image:radial-gradient(70rem 50rem at 50% 0%, #000 0%, transparent 78%);
@@ -54,15 +140,15 @@
   .glow{
     position:fixed;pointer-events:none;z-index:0;border-radius:50%;filter:blur(90px);
   }
-  .glow.a{width:42vw;height:42vw;left:-14vw;top:-14vw;background:radial-gradient(circle,rgba(61,139,255,.14),transparent 70%)}
-  .glow.b{width:36vw;height:36vw;right:-12vw;top:30vh;background:radial-gradient(circle,rgba(79,195,247,.09),transparent 70%)}
+  .glow.a{width:42vw;height:42vw;left:-14vw;top:-14vw;background:radial-gradient(circle,var(--glow-a),transparent 70%)}
+  .glow.b{width:36vw;height:36vw;right:-12vw;top:30vh;background:radial-gradient(circle,var(--glow-b),transparent 70%)}
   .wrap{position:relative;z-index:1;max-width:1060px;margin:0 auto;padding:0 26px}
 
   .nav{display:flex;align-items:center;justify-content:space-between;padding:20px 0;border-bottom:1px solid var(--line-soft)}
   .brand{display:flex;align-items:center;gap:11px;text-decoration:none;color:inherit}
   .brand-mark{
     width:34px;height:34px;border-radius:9px;overflow:hidden;flex:none;
-    box-shadow:0 0 0 1px var(--line), 0 4px 14px -4px rgba(61,139,255,.5);
+    box-shadow:0 0 0 1px var(--line), 0 4px 14px -4px rgba(var(--accent-rgb),.5);
   }
   .brand-mark img{width:100%;height:100%;display:block}
   .brand-name{font-family:var(--mono);font-weight:700;font-size:17px}
@@ -71,10 +157,33 @@
   .nav-links a{color:var(--muted);text-decoration:none;transition:color .15s ease}
   .nav-links a:hover{color:var(--accent-2)}
   .nav-cta{
-    padding:7px 15px;border:1px solid rgba(61,139,255,.6);border-radius:8px;color:var(--accent-2)!important;font-weight:500;
+    padding:7px 15px;border:1px solid rgba(var(--accent-rgb),.6);border-radius:8px;color:var(--accent-2)!important;font-weight:500;
     transition:background .15s ease,color .15s ease,box-shadow .15s ease!important;
   }
-  .nav-cta:hover{background:var(--accent);color:#fff!important;box-shadow:0 6px 22px -8px rgba(61,139,255,.7)}
+  .nav-cta:hover{background:var(--accent);color:var(--on-accent)!important;box-shadow:0 6px 22px -8px rgba(var(--accent-rgb),.7)}
+
+  /* --- 深/浅色切换按钮 --- */
+  .theme-toggle{
+    position:relative;width:34px;height:34px;flex:none;padding:0;
+    border:1px solid var(--line);border-radius:9px;
+    background:transparent;color:var(--muted);cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;
+    -webkit-tap-highlight-color:transparent;
+    transition:border-color .18s ease,color .18s ease,background .18s ease,box-shadow .18s ease;
+  }
+  .theme-toggle:hover{
+    color:var(--accent-2);border-color:rgba(var(--accent-rgb),.55);
+    background:var(--accent-soft);box-shadow:0 6px 18px -10px rgba(var(--accent-rgb),.8);
+  }
+  .theme-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .theme-toggle svg{
+    position:absolute;width:16px;height:16px;
+    transition:opacity .28s ease,transform .5s cubic-bezier(.34,1.3,.5,1);
+  }
+  .theme-toggle .ico-sun{opacity:1;transform:rotate(0deg) scale(1)}
+  .theme-toggle .ico-moon{opacity:0;transform:rotate(-60deg) scale(.55)}
+  :root[data-theme="light"] .theme-toggle .ico-sun{opacity:0;transform:rotate(60deg) scale(.55)}
+  :root[data-theme="light"] .theme-toggle .ico-moon{opacity:1;transform:rotate(0deg) scale(1)}
 
   .hero{padding:76px 0 46px;max-width:760px}
   .hero-cmd{font-family:var(--mono);font-size:13.5px;color:var(--dim);margin-bottom:20px}
@@ -96,31 +205,31 @@
   .hero-actions{display:flex;gap:14px;flex-wrap:wrap}
   .btn-primary{
     display:inline-flex;align-items:center;gap:9px;
-    background:linear-gradient(120deg,#2f6fe4,#3d8bff);color:#fff;
+    background:var(--grad-btn);color:var(--on-accent);
     padding:13px 26px;border-radius:10px;font-weight:700;font-size:14.5px;text-decoration:none;
     font-family:var(--mono);
-    box-shadow:0 12px 32px -12px rgba(61,139,255,.55);
+    box-shadow:0 12px 32px -12px rgba(var(--accent-rgb),.55);
     transition:transform .16s ease,box-shadow .16s ease;
   }
-  .btn-primary:hover{transform:translateY(-2px);box-shadow:0 18px 40px -14px rgba(61,139,255,.75)}
+  .btn-primary:hover{transform:translateY(-2px);box-shadow:0 18px 40px -14px rgba(var(--accent-rgb),.75)}
   .btn-secondary{
     display:inline-flex;align-items:center;gap:8px;
     color:var(--accent-2);text-decoration:none;padding:13px 24px;border-radius:10px;
     font-weight:600;font-size:14.5px;font-family:var(--mono);
-    border:1px solid rgba(61,139,255,.55);background:var(--accent-soft);
+    border:1px solid rgba(var(--accent-rgb),.55);background:var(--accent-soft);
     backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
     transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease;
   }
-  .btn-secondary:hover{transform:translateY(-2px);border-color:var(--accent-2);box-shadow:0 14px 34px -14px rgba(61,139,255,.5)}
+  .btn-secondary:hover{transform:translateY(-2px);border-color:var(--accent-2);box-shadow:0 14px 34px -14px rgba(var(--accent-rgb),.5)}
 
   .term{
     background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
     border:1px solid var(--line);border-radius:var(--radius);
-    overflow:hidden;margin:26px 0 0;box-shadow:0 24px 60px -30px rgba(0,0,0,.7);
+    overflow:hidden;margin:26px 0 0;box-shadow:var(--shadow-term);
   }
   .term-head{
     display:flex;align-items:center;gap:8px;padding:11px 16px;
-    border-bottom:1px solid var(--line-soft);background:rgba(255,255,255,.03);
+    border-bottom:1px solid var(--line-soft);background:var(--tint);
   }
   .term-dot{width:11px;height:11px;border-radius:50%}
   .term-title{font-family:var(--mono);font-size:12px;color:var(--dim);margin-left:8px}
@@ -128,7 +237,7 @@
   .term-line{display:flex;gap:10px;align-items:baseline;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .term-line .p{color:var(--ok)}
   .term-line .host{color:var(--text)}
-  .term-line .dots{flex:1;border-bottom:1px dashed rgba(255,255,255,.12);transform:translateY(-4px);min-width:20px}
+  .term-line .dots{flex:1;border-bottom:1px dashed var(--hairline);transform:translateY(-4px);min-width:20px}
   .term-line .st{font-weight:700}
   .term-line .st.ok{color:var(--ok)}
   .term-line .st.err{color:var(--err)}
@@ -151,21 +260,21 @@
   }
   .entry:hover{
     transform:translateY(-5px);background:var(--panel-strong);
-    border-color:rgba(61,139,255,.5);
-    box-shadow:0 0 0 1px rgba(61,139,255,.2), 0 24px 50px -22px rgba(61,139,255,.35);
+    border-color:rgba(var(--accent-rgb),.5);
+    box-shadow:0 0 0 1px rgba(var(--accent-rgb),.2), 0 24px 50px -22px rgba(var(--accent-rgb),.35);
   }
-  .entry.featured{border-color:rgba(61,139,255,.45);box-shadow:0 0 0 1px rgba(61,139,255,.14), 0 16px 40px -20px rgba(61,139,255,.3)}
+  .entry.featured{border-color:rgba(var(--accent-rgb),.45);box-shadow:0 0 0 1px rgba(var(--accent-rgb),.14), 0 16px 40px -20px rgba(var(--accent-rgb),.3)}
   .entry-tag{
     position:absolute;top:16px;right:16px;
     font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.08em;
-    color:var(--accent-2);border:1px solid rgba(61,139,255,.5);border-radius:6px;
-    padding:3px 8px;background:rgba(61,139,255,.1);
+    color:var(--accent-2);border:1px solid rgba(var(--accent-rgb),.5);border-radius:6px;
+    padding:3px 8px;background:rgba(var(--accent-rgb),.1);
   }
   .entry-icon{
-    width:44px;height:44px;border-radius:12px;color:#fff;overflow:hidden;
+    width:44px;height:44px;border-radius:12px;color:var(--on-accent);overflow:hidden;
     display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:700;font-size:15px;
-    background:linear-gradient(135deg,#2f6fe4,#4fc3f7);
-    box-shadow:0 8px 20px -8px rgba(61,139,255,.6);
+    background:var(--grad-icon);
+    box-shadow:0 8px 20px -8px rgba(var(--accent-rgb),.6);
   }
   .entry-icon img{width:100%;height:100%;display:block}
   .entry-icon.plain{background:var(--panel-solid);box-shadow:none;border:1px solid var(--line);color:var(--accent-2)}
@@ -184,10 +293,12 @@
     border:1px solid var(--line);border-radius:var(--radius);
     padding:26px 24px;display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:center;
   }
+  /* 允许网格子项收缩到内容最小宽度以下，否则窄屏会被内容撑开 */
+  .season > *{min-width:0}
   .season-tag{
     display:inline-block;font-family:var(--mono);font-size:11.5px;color:var(--ok);
-    border:1px solid rgba(52,211,153,.4);border-radius:6px;padding:3px 10px;margin-bottom:14px;
-    background:rgba(52,211,153,.08);
+    border:1px solid rgba(var(--ok-rgb),.4);border-radius:6px;padding:3px 10px;margin-bottom:14px;
+    background:rgba(var(--ok-rgb),.08);
   }
   .season-name{font-size:24px;font-weight:700;margin:0 0 8px}
   .season-meta{font-size:13.5px;color:var(--muted);margin:0 0 18px}
@@ -204,8 +315,9 @@
   }
   .season-pct small{font-size:16px;color:var(--dim);-webkit-text-fill-color:var(--dim)}
   .segs{display:flex;gap:3px;margin:14px 0 8px;justify-content:flex-end}
-  .segs i{width:9px;height:16px;background:rgba(255,255,255,.09);border-radius:2px;flex:none}
-  .segs i.on{background:linear-gradient(180deg,var(--accent-2),var(--accent));box-shadow:0 0 8px rgba(61,139,255,.5)}
+  /* 进度格用弹性宽度：窄屏自动收窄，避免 36 格撑破容器导致横向滚动 */
+  .segs i{flex:1 1 0;min-width:2px;max-width:9px;height:16px;background:var(--seg-off);border-radius:2px}
+  .segs i.on{background:linear-gradient(180deg,var(--accent-2),var(--accent));box-shadow:0 0 8px rgba(var(--accent-rgb),.5)}
   .season-days{font-family:var(--mono);font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
 
   .features{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
@@ -235,6 +347,26 @@
   .js .reveal.is-visible{opacity:1;transform:none}
   .js .reveal[data-delay="1"]{transition-delay:.08s}
 
+  /* 主题切换瞬间统一着色过渡，避免逐元素补 transition。
+     放在样式表末尾以覆盖前面带 !important 的 transition 声明。 */
+  .theming,
+  .theming *,
+  .theming *::before,
+  .theming *::after{
+    transition:
+      background-color .36s ease,
+      background-image .36s ease,
+      border-color .36s ease,
+      color .36s ease,
+      box-shadow .36s ease,
+      fill .36s ease,
+      stroke .36s ease !important;
+  }
+  /* 例外：图标本身的旋转/缩放动画要在切换过程中保留 */
+  .theming .theme-toggle svg{
+    transition:opacity .28s ease, transform .5s cubic-bezier(.34,1.3,.5,1) !important;
+  }
+
   @media (max-width:880px){
     .entries{grid-template-columns:1fr}
     .features{grid-template-columns:1fr 1fr}
@@ -247,11 +379,14 @@
     .features{grid-template-columns:1fr}
     .hero{padding:56px 0 36px}
     .term-line .ms{display:none}
+    .nav-links{gap:14px}
   }
   @media (prefers-reduced-motion: reduce){
     .js .reveal{opacity:1!important;transform:none!important;transition:none!important}
     .hero h1 .cursor{animation:none}
     *{scroll-behavior:auto!important}
+    .theming,.theming *,.theming *::before,.theming *::after{transition:none!important}
+    .theme-toggle svg{transition:none!important}
   }
 </style>
 </head>
@@ -268,6 +403,15 @@
       <a href="#entries">./entries</a>
       <a href="#season">./season</a>
       <a href="#features">./features</a>
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换深浅色模式" title="切换深浅色模式">
+        <svg class="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4.2"/>
+          <path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/>
+        </svg>
+        <svg class="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20.5 14.2A8.6 8.6 0 1 1 9.8 3.5a6.9 6.9 0 0 0 10.7 10.7z"/>
+        </svg>
+      </button>
       <a class="nav-cta" href="https://account.eacm.cn/">login --passport</a>
     </div>
   </nav>
@@ -466,6 +610,68 @@
     .then(function (r) { if (!r.ok) throw 0; return r.json(); })
     .then(function (d) { renderSeason(d, false); })
     .catch(function () { renderSeason(FALLBACK, true); });
+})();
+
+/* ---------- 深/浅色模式切换 ---------- */
+(function () {
+  var root = document.documentElement;
+  var KEY = 'eacm-theme';
+  var btn = document.getElementById('themeToggle');
+  var meta = document.querySelector('meta[name="theme-color"]');
+  var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  var THEME_COLOR = { dark: '#0a0d12', light: '#f6f2e9' };
+  var timer = null;
+
+  function reduced() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+  function current() {
+    return root.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  }
+  function stored() {
+    try {
+      var v = localStorage.getItem(KEY);
+      return (v === 'light' || v === 'dark') ? v : null;
+    } catch (e) { return null; }
+  }
+
+  function apply(t, animate) {
+    if (animate && !reduced()) {
+      root.classList.add('theming');
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(function () {
+        root.classList.remove('theming');
+        timer = null;
+      }, 420);
+    }
+    root.setAttribute('data-theme', t);
+    if (meta) meta.setAttribute('content', THEME_COLOR[t]);
+    if (btn) {
+      var next = (t === 'light') ? '深色' : '浅色';
+      btn.setAttribute('aria-label', '切换到' + next + '模式');
+      btn.setAttribute('title', '切换到' + next + '模式');
+    }
+  }
+
+  // 首屏：head 内联脚本已写入 data-theme，这里补齐 meta 与无障碍文案
+  apply(current(), false);
+
+  if (btn) {
+    btn.addEventListener('click', function () {
+      var next = (current() === 'light') ? 'dark' : 'light';
+      apply(next, true);
+      try { localStorage.setItem(KEY, next); } catch (e) {}
+    });
+  }
+
+  // 用户未显式选择过时，实时跟随系统
+  if (mq) {
+    var onSystemChange = function () {
+      if (!stored()) apply(mq.matches ? 'light' : 'dark', true);
+    };
+    if (mq.addEventListener) mq.addEventListener('change', onSystemChange);
+    else if (mq.addListener) mq.addListener(onSystemChange);
+  }
 })();
 </script>
 </body>
