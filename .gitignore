@@ -1,5 +1,5 @@
-# --- Monorepo root ignores (WorkBuddy session internals) ---
-.workbuddy/
+# --- Monorepo root ignores (local session / tooling scratch) ---
+.work*/
 .venv/
 overview.md
 
@@ -27,7 +27,7 @@ __pycache__/
 .pytest_cache/
 staticfiles/
 
-# --- Debug scratch / generated (WorkBuddy session + local runs, never commit) ---
+# --- Debug scratch / generated (local session + local runs, never commit) ---
 _*.txt
 _*.tmp
 *.log
