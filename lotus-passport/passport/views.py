@@ -65,6 +65,7 @@ from .providers import (
 
 from .ratelimit import (
     AuthCodeStore,
+    CaptchaGate,
     EmailCodeStore,
     GenericLoginTicketStore,
     OAuthStateStore,
@@ -1791,6 +1792,43 @@ class EmailCodeSendView(APIView):
                 {"error": {"code": 429, "message": "请求过于频繁，请稍后再试"}},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
+
+        # 人机验证门禁（自适应阈值，见 ratelimit.CaptchaGate）。
+        # 顺序很重要：先按「既有计数」判断是否需要验证码，再计入本次请求——
+        # 这样第 N 次不会被拦，第 N+1 次才要求，与密码登录的语义一致。
+        # 计数包含后续可能被冷却拒绝的请求，因此脚本猛打会很快触发。
+        if settings.CAPTCHA_ENABLED and settings.CAPTCHA_EMAIL_ENABLED:
+            gate = CaptchaGate()
+            client_ip = request.META.get("REMOTE_ADDR")
+            if gate.required(client_ip, email):
+                captcha_token = (data.get("captcha") or "").strip()
+                if not captcha_token:
+                    # 同时带 code 与 captcha_required：前端 ApiException
+                    # 读的是后者（与密码登录的 401 分支保持一致）。
+                    return Response(
+                        {
+                            "error": {
+                                "code": "captcha_required",
+                                "captcha_required": True,
+                                "message": "请完成人机验证后再试",
+                            }
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if not CaptchaVerifier.verify(captcha_token, client_ip):
+                    return Response(
+                        {
+                            "error": {
+                                "code": "captcha_invalid",
+                                "message": "人机验证失败，请重试",
+                            }
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                # 验证通过：清零邮箱维度，避免同一邮箱在窗口内被反复要求。
+                # 刻意不清零 IP 维度——解一次验证码不该让攻击者白拿一批发送额度。
+                gate.clear(email)
+            gate.touch(client_ip, email)
 
         user = getattr(request, "user", None)
         authed = (

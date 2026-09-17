@@ -7,6 +7,8 @@ import { useAuth } from "@/lib/auth-context";
 import { emailLogin, sendEmailCode,
   continueGenericLogin,
 } from "@/lib/passport-api";
+import { useCaptcha } from "@/lib/use-captcha";
+import { CaptchaField } from "@/components/CaptchaField";
 import { Sparkles } from "@/components/icons";
 
 function ArrowLeftIcon({ className }: { className?: string }) {
@@ -33,6 +35,7 @@ export default function EmailLoginPage() {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [countdown, setCountdown] = React.useState(0);
+  const captcha = useCaptcha();
 
   React.useEffect(() => {
     if (user) router.replace("/profile/basic");
@@ -49,13 +52,21 @@ export default function EmailLoginPage() {
 
   const onSend = async () => {
     if (sending || !emailValid || countdown > 0) return;
+    if (captcha.required && !captcha.token) {
+      setError("请先完成人机验证");
+      return;
+    }
     setSending(true);
     setError(null);
     try {
-      await sendEmailCode(email.trim(), "login");
+      await sendEmailCode(email.trim(), "login", null, captcha.token);
       setSent(true);
       setCountdown(60);
+      // hCaptcha token 一次性：发送成功后重置，下次需要时重新验证
+      captcha.reset();
     } catch (err: unknown) {
+      // 验证码相关错误由 useCaptcha 接管（弹组件 / 提示重试）
+      if (captcha.interpret(err)) return;
       setError(err instanceof Error ? err.message : "发送失败，请稍后重试");
     } finally {
       setSending(false);
@@ -146,6 +157,8 @@ export default function EmailLoginPage() {
               </p>
             )}
           </div>
+
+          <CaptchaField captcha={captcha} />
 
           <button
             type="submit"

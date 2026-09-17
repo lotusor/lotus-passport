@@ -437,11 +437,32 @@ TRUSTED_PROXY_CIDRS = env(
 
 # CAPTCHA (hCaptcha) — human verification after repeated failures (§一.C).
 # Disabled unless HCAPTCHA_SECRET_KEY is set, so it never affects existing
-# login behaviour or the test suite. See docs/captcha-plan.md.
+# login behaviour or the test suite.
+# Implementation: passport/captcha.py (token verification, fail-closed)
+#                 passport/ratelimit.py::CaptchaGate (adaptive trigger counters)
 HCAPTCHA_SECRET_KEY = env("HCAPTCHA_SECRET_KEY", "")
 CAPTCHA_PROVIDER = env("CAPTCHA_PROVIDER", "hcaptcha")
 CAPTCHA_TRIGGER_THRESHOLD = int(env("CAPTCHA_TRIGGER_THRESHOLD", "3"))
 CAPTCHA_ENABLED = bool(HCAPTCHA_SECRET_KEY)
+
+# --- Email-code send endpoint gate (邮件轰炸 / SMTP 配额防护) ----------------- #
+# The public send-code endpoint can be scripted to bomb third-party mailboxes
+# and to burn the SMTP quota (Resend free tier = 3000/month), which would take
+# real users offline. The gate counts requests per source IP *and* per target
+# address inside a fixed window; either dimension crossing its threshold makes
+# a CAPTCHA token mandatory (see ratelimit.CaptchaGate).
+#
+# Threshold rationale:
+#   * address = 3/hour  — the endpoint already enforces a 60s per-address
+#     cooldown, so 3 sends to one mailbox in an hour is already abnormal.
+#   * ip = 10/hour      — a legitimate user never sends codes to 10 different
+#     mailboxes; raise this if a shared NAT egress ever trips it.
+# CAPTCHA_EMAIL_ENABLED is deliberately independent of CAPTCHA_ENABLED so the
+# email gate can be rolled back on its own without disabling login CAPTCHA.
+CAPTCHA_EMAIL_ENABLED = env_bool("CAPTCHA_EMAIL_ENABLED", True)
+CAPTCHA_EMAIL_IP_THRESHOLD = int(env("CAPTCHA_EMAIL_IP_THRESHOLD", "10"))
+CAPTCHA_EMAIL_ADDR_THRESHOLD = int(env("CAPTCHA_EMAIL_ADDR_THRESHOLD", "3"))
+CAPTCHA_EMAIL_WINDOW = int(env("CAPTCHA_EMAIL_WINDOW", "3600"))
 
 # --------------------------------------------------------------------------- #
 # Email / SMTP — 密码重置邮件（§9.4a reset，2026-08-27 落地）

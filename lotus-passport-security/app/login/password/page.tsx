@@ -10,19 +10,9 @@ import {
   continueGenericLogin,
   stashGenericTicket,
 } from "@/lib/passport-api";
+import { useCaptcha } from "@/lib/use-captcha";
+import { CaptchaField } from "@/components/CaptchaField";
 import { Sparkles, Eye, EyeOff } from "@/components/icons";
-
-const HCAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY;
-
-declare global {
-  interface Window {
-    hcaptcha?: {
-      render: (el: HTMLElement, opts: Record<string, unknown>) => number;
-      remove: (widgetId: number) => void;
-      reset: (widgetId?: number) => void;
-    };
-  }
-}
 
 function ArrowLeftIcon({ className }: { className?: string }) {
   return (
@@ -44,11 +34,8 @@ export default function PasswordLoginPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [locked, setLocked] = React.useState(false);
   const [lockRemaining, setLockRemaining] = React.useState(0);
-  const [showCaptcha, setShowCaptcha] = React.useState(false);
-  const [captchaToken, setCaptchaToken] = React.useState<string | null>(null);
-  const [captchaError, setCaptchaError] = React.useState<string | null>(null);
-  const captchaRef = React.useRef<HTMLDivElement | null>(null);
-  const captchaRendered = React.useRef(false);
+  // 人机验证：与邮箱流程共用同一套 hook / 组件（契约见 lib/use-captcha.ts）
+  const captcha = useCaptcha();
 
   // 已登录 → 直接跳走
   React.useEffect(() => {
@@ -73,63 +60,21 @@ export default function PasswordLoginPage() {
     return () => clearInterval(t);
   }, [locked]);
 
-  // 加载并渲染 hCaptcha 组件（仅当后端要求验证码时）
-  React.useEffect(() => {
-    if (!showCaptcha || !HCAPTCHA_SITE_KEY || captchaRendered.current) return;
-    let cancelled = false;
-    const renderWidget = () => {
-      if (cancelled || !captchaRef.current || !window.hcaptcha) return;
-      captchaRendered.current = true;
-      window.hcaptcha.render(captchaRef.current, {
-        sitekey: HCAPTCHA_SITE_KEY,
-        theme: "light",
-        callback: (t: string) => setCaptchaToken(t),
-        "expired-callback": () => setCaptchaToken(null),
-        "error-callback": () => setCaptchaError("人机验证组件加载失败，请刷新页面重试"),
-      });
-    };
-    if (window.hcaptcha?.render) {
-      renderWidget();
-    } else {
-      const src = "https://js.hcaptcha.com/1/api.js";
-      const existing = document.querySelector(`script[src="${src}"]`);
-      if (!existing) {
-        const s = document.createElement("script");
-        s.src = src;
-        s.async = true;
-        s.onload = () => renderWidget();
-        document.body.appendChild(s);
-      } else {
-        const poll = setInterval(() => {
-          if (window.hcaptcha?.render) {
-            clearInterval(poll);
-            renderWidget();
-          }
-        }, 200);
-        setTimeout(() => clearInterval(poll), 6000);
-      }
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [showCaptcha]);
-
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loading) return;
     // 已要求验证码但未完成时拦截
-    if (showCaptcha && !captchaToken) {
+    if (captcha.required && !captcha.token) {
       setError("请先完成人机验证");
       return;
     }
     setLoading(true);
     setError(null);
-    setCaptchaError(null);
     try {
       const tokens = await passwordLogin(
         identifier.trim(),
         password,
-        captchaToken || undefined
+        captcha.token || undefined
       );
       await login(tokens.access, tokens.refresh);
       // 通用 OAuth 入口：有 oticket 时回接入方而非资料页
@@ -144,12 +89,9 @@ export default function PasswordLoginPage() {
         setError(null);
         setLocked(true);
         setLockRemaining(err.retryAfter);
-      } else if (err instanceof ApiException && err.captchaRequired) {
+      } else if (captcha.interpret(err)) {
+        // 验证码相关（弹组件 / 提示重试），由 useCaptcha 接管
         setError(null);
-        setShowCaptcha(true);
-      } else if (err instanceof ApiException && err.errorCode === "captcha_invalid") {
-        setCaptchaToken(null);
-        setCaptchaError("人机验证失败，请重新完成验证");
       } else {
         const msg = err instanceof Error ? err.message : "登录失败，请稍后重试";
         setError(msg);
@@ -234,23 +176,7 @@ export default function PasswordLoginPage() {
             </div>
           </div>
 
-          {showCaptcha && (
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-ink">
-                人机验证
-              </label>
-              {HCAPTCHA_SITE_KEY ? (
-                <div ref={captchaRef} />
-              ) : (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                  验证码组件未配置（缺少 NEXT_PUBLIC_HCAPTCHA_SITE_KEY）
-                </div>
-              )}
-              {captchaError && (
-                <p className="mt-1.5 text-sm text-red-600">{captchaError}</p>
-              )}
-            </div>
-          )}
+          <CaptchaField captcha={captcha} />
 
           <button
             type="submit"

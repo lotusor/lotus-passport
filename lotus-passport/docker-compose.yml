@@ -49,7 +49,13 @@ services:
   # 形成"浏览器 → nginx:443 → next.js:3000 → passport:8000"的两跳链路，
   # 全程不跨域（同 host 网络 + Next.js 内部 fetch）。
   frontend:
-    build: ../lotus-passport-security
+    build:
+      context: ../lotus-passport-security
+      # NEXT_PUBLIC_* 在构建期内联进客户端 bundle，运行时给没用。
+      # 值来自本目录的 .env（docker compose 的变量插值文件，不进 git）。
+      # 缺省为空 → 验证码组件会显示「未配置」，故部署前务必确认该值已配。
+      args:
+        NEXT_PUBLIC_HCAPTCHA_SITE_KEY: ${NEXT_PUBLIC_HCAPTCHA_SITE_KEY:-}
     environment:
       # 同 host 网络 → 直接打宿主 127.0.0.1（也等同于容器内 127.0.0.1）
       PASSPORT_API_ORIGIN: http://127.0.0.1:8000

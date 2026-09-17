@@ -1,4 +1,8 @@
-"""CAPTCHA (hCaptcha) gate on the password-login endpoint (docs/captcha-plan.md).
+"""CAPTCHA (hCaptcha) gate on the password-login endpoint.
+
+See passport/captcha.py (token verification) and passport/ratelimit.py
+(AccountLockout + CaptchaGate). The email-code gate has its own suite in
+test_captcha_email.py.
 
 Covers: default-off (no key), captcha_required after the failure threshold,
 captcha_invalid rejection without 误锁, and lockout winning over captcha.

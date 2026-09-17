@@ -614,15 +614,23 @@ export async function confirmPasswordReset(
 
 export type EmailCodePurpose = "login" | "bind" | "new" | "old";
 
-/** 请求验证码。purpose 语义见后端 EmailCodeSendView（bind/new/old 需登录态）。 */
+/**
+ * 请求验证码。purpose 语义见后端 EmailCodeSendView（bind/new/old 需登录态）。
+ *
+ * `captcha` 为自适应人机验证 token：后端按「IP / 目标邮箱」双维度计数，超过
+ * 阈值才要求。未要求时传空即可，后端不会校验。
+ */
 export async function sendEmailCode(
   email: string,
   purpose: EmailCodePurpose,
-  token?: string | null
+  token?: string | null,
+  captcha?: string | null
 ): Promise<void> {
+  const body: Record<string, string> = { email, purpose };
+  if (captcha) body.captcha = captcha;
   await request(
     "/api/v1/security/email/send-code/",
-    { method: "POST", body: JSON.stringify({ email, purpose }) },
+    { method: "POST", body: JSON.stringify(body) },
     token
   );
 }

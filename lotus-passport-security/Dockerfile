@@ -21,6 +21,16 @@ RUN npm ci
 FROM node:22-slim AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# NEXT_PUBLIC_* vars are INLINED into the client bundle at `next build` time —
+# setting them at runtime has no effect. `.env.local` holds the value for local
+# dev, but `.dockerignore` excludes it on purpose (so a stray server-side secret
+# can never be baked into an image layer). Production therefore passes the
+# public hCaptcha site key as an explicit build arg. Without it the CAPTCHA
+# widget renders "未配置" and any user who trips the gate is stuck.
+ARG NEXT_PUBLIC_HCAPTCHA_SITE_KEY=""
+ENV NEXT_PUBLIC_HCAPTCHA_SITE_KEY=${NEXT_PUBLIC_HCAPTCHA_SITE_KEY}
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build \

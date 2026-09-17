@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import re
 import secrets
 import time
@@ -29,6 +30,8 @@ except Exception:  # noqa: BLE001
 
 
 _CLIENT: Any = None
+
+logger = logging.getLogger(__name__)
 
 
 def get_redis() -> Any:
@@ -358,6 +361,116 @@ class EmailCodeStore:
         else:
             self.client.setex(key, self.TTL, json.dumps({"code": data.get("code"), "attempts": attempts}))
         return False
+
+
+class CaptchaGate:
+    """Adaptive human-verification gate for the email-code send endpoint.
+
+    Counts send-code *requests* on two independent dimensions — source IP and
+    target email address — inside a fixed window. As soon as **either**
+    dimension reaches its threshold, the caller must present a valid CAPTCHA
+    token before a code is sent.
+
+    Why two dimensions: a single host rotating through target addresses is
+    caught by the IP counter; a distributed flood aimed at one victim mailbox
+    is caught by the address counter. Neither dimension alone covers both, and
+    the email-bombing threat model needs both.
+
+    Counters use the same fixed-window semantics as :class:`RateLimiter` and
+    expire on their own, so a gate that somehow got stuck can never outlive
+    ``CAPTCHA_EMAIL_WINDOW``. :meth:`clear` resets the address dimension once a
+    token has verified, so a legitimate user is not asked again for the same
+    mailbox within the window (see :meth:`clear` for why the IP dimension is
+    deliberately left alone).
+
+    Failure mode: counting is *best-effort*. If Redis is unavailable the gate
+    degrades to "not required" rather than blocking sends — the endpoint's
+    primary controls (per-address cooldown + hourly cap) are still enforced, and
+    a secondary control must not become a availability single point of failure.
+    Failures are logged so the degradation is visible.
+    """
+
+    PREFIX = "captcha:gate:"
+
+    def __init__(self, client: Any | None = None) -> None:
+        self.client = client or get_redis()
+
+    # -- thresholds (read lazily so tests can override settings) ---------- #
+    @staticmethod
+    def _ip_threshold() -> int:
+        return int(getattr(settings, "CAPTCHA_EMAIL_IP_THRESHOLD", 10))
+
+    @staticmethod
+    def _addr_threshold() -> int:
+        return int(getattr(settings, "CAPTCHA_EMAIL_ADDR_THRESHOLD", 3))
+
+    @staticmethod
+    def _window() -> int:
+        return int(getattr(settings, "CAPTCHA_EMAIL_WINDOW", 3600))
+
+    # -- keys ------------------------------------------------------------- #
+    @staticmethod
+    def _ip_key(ip: str | None) -> str:
+        return f"{CaptchaGate.PREFIX}ip:{ip or '0.0.0.0'}"
+
+    @staticmethod
+    def _addr_key(email: str) -> str:
+        return f"{CaptchaGate.PREFIX}addr:{(email or '').strip().lower()}"
+
+    # -- public API ------------------------------------------------------- #
+    def required(self, ip: str | None, email: str) -> bool:
+        """True when either dimension has already reached its threshold."""
+        return (
+            self._count(self._ip_key(ip)) >= self._ip_threshold()
+            or self._count(self._addr_key(email)) >= self._addr_threshold()
+        )
+
+    def touch(self, ip: str | None, email: str) -> None:
+        """Record one send-code request on both dimensions.
+
+        Called for *every* request that reaches the endpoint (including ones
+        later rejected by the cooldown), so a hammering client trips the gate
+        quickly instead of only counting successful sends.
+        """
+        self._bump(self._ip_key(ip))
+        self._bump(self._addr_key(email))
+
+    def clear(self, email: str) -> None:
+        """Reset the *address* dimension after a CAPTCHA token verifies.
+
+        Only the address counter is cleared, deliberately. The address counter
+        answers "has this mailbox been asked too often?" — once a human has
+        proved they are driving the flow, nagging them again for the same
+        mailbox is pure friction.
+
+        The IP counter answers "is this host behaving like a bot?" and is *not*
+        cleared: a single solved CAPTCHA does not retroactively legitimise the
+        previous N sends, and clearing it would hand an attacker a fresh batch
+        of free sends per solve (10x weaker). It expires on its own after
+        ``CAPTCHA_EMAIL_WINDOW``. The UX cost is one CAPTCHA per send for hosts
+        that have tripped the IP threshold — acceptable at the configured
+        threshold of 10/hour.
+        """
+        try:
+            self.client.delete(self._addr_key(email))
+        except Exception as exc:  # noqa: BLE001 — best-effort
+            logger.warning("captcha gate: clear failed: %s", exc)
+
+    # -- internals -------------------------------------------------------- #
+    def _count(self, key: str) -> int:
+        try:
+            return int(self.client.get(key) or 0)
+        except Exception as exc:  # noqa: BLE001 — degrade to "not required"
+            logger.warning("captcha gate: read failed, gate degraded: %s", exc)
+            return 0
+
+    def _bump(self, key: str) -> None:
+        try:
+            count = self.client.incr(key)
+            if count == 1:
+                self.client.expire(key, self._window())
+        except Exception as exc:  # noqa: BLE001 — never break sending over counting
+            logger.warning("captcha gate: increment failed: %s", exc)
 
 
 class AuthCodeStore:

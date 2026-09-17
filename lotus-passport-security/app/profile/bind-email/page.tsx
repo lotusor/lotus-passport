@@ -4,6 +4,8 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { bindEmail, sendEmailCode, fetchUserInfo } from "@/lib/passport-api";
+import { useCaptcha } from "@/lib/use-captcha";
+import { CaptchaField } from "@/components/CaptchaField";
 import { Sparkles, Eye, EyeOff } from "@/components/icons";
 
 /**
@@ -26,6 +28,7 @@ export default function BindEmailPage() {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [countdown, setCountdown] = React.useState(0);
+  const captcha = useCaptcha();
 
   React.useEffect(() => {
     // 未登录 → 登录页；已有邮箱的用户不该在这里
@@ -50,13 +53,21 @@ export default function BindEmailPage() {
       if (!accessToken) setError("登录状态已失效，请重新登录");
       return;
     }
+    if (captcha.required && !captcha.token) {
+      setError("请先完成人机验证");
+      return;
+    }
     setSending(true);
     setError(null);
     try {
-      await sendEmailCode(email.trim(), "bind", accessToken);
+      await sendEmailCode(email.trim(), "bind", accessToken, captcha.token);
       setSent(true);
       setCountdown(60);
+      // hCaptcha token 一次性：发送成功后重置，下次需要时重新验证
+      captcha.reset();
     } catch (err: unknown) {
+      // 验证码相关错误由 useCaptcha 接管（弹组件 / 提示重试）
+      if (captcha.interpret(err)) return;
       setError(err instanceof Error ? err.message : "发送失败，请稍后重试");
     } finally {
       setSending(false);
@@ -152,6 +163,8 @@ export default function BindEmailPage() {
               </p>
             )}
           </div>
+
+          <CaptchaField captcha={captcha} />
 
           {needPassword && (
             <div>

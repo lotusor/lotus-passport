@@ -5,6 +5,8 @@ import { Modal } from "@/components/modal";
 import { Button } from "@/components/ui";
 import { Eye, EyeOff, Alert } from "@/components/icons";
 import { changeEmail, sendEmailCode } from "@/lib/passport-api";
+import { useCaptcha } from "@/lib/use-captcha";
+import { CaptchaField } from "@/components/CaptchaField";
 import { cn } from "@/lib/cn";
 
 function Spinner({ className }: { className?: string }) {
@@ -49,6 +51,9 @@ export function ChangeEmailModal({
   const [sending, setSending] = React.useState<"new" | "old" | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // 人机验证：新/旧邮箱两个发码按钮共用同一个组件（后端按 IP+目标邮箱计数）
+  const captcha = useCaptcha();
+  const resetCaptcha = captcha.reset;
 
   // 重置
   React.useEffect(() => {
@@ -62,8 +67,10 @@ export function ChangeEmailModal({
       setNewCountdown(0);
       setOldCountdown(0);
       setError(null);
+      // 关闭弹窗时清掉已消耗的 token，重开时重新验证
+      resetCaptcha();
     }
-  }, [open]);
+  }, [open, resetCaptcha]);
 
   React.useEffect(() => {
     if (newCountdown <= 0 && oldCountdown <= 0) return;
@@ -85,19 +92,27 @@ export function ChangeEmailModal({
       setError("请先输入有效的新邮箱");
       return;
     }
+    if (captcha.required && !captcha.token) {
+      setError("请先完成人机验证");
+      return;
+    }
     setSending(which);
     setError(null);
     try {
       if (which === "new") {
-        await sendEmailCode(newEmail.trim(), "new", token);
+        await sendEmailCode(newEmail.trim(), "new", token, captcha.token);
         setNewSent(true);
         setNewCountdown(60);
       } else {
-        await sendEmailCode(currentEmail, "old", token);
+        await sendEmailCode(currentEmail, "old", token, captcha.token);
         setOldSent(true);
         setOldCountdown(60);
       }
+      // hCaptcha token 一次性：发送成功后重置，下次需要时重新验证
+      resetCaptcha();
     } catch (err: unknown) {
+      // 验证码相关错误由 useCaptcha 接管（弹组件 / 提示重试）
+      if (captcha.interpret(err)) return;
       setError(err instanceof Error ? err.message : "发送失败，请稍后重试");
     } finally {
       setSending(null);
@@ -225,6 +240,8 @@ export function ChangeEmailModal({
             </div>
           </div>
         )}
+
+        <CaptchaField captcha={captcha} />
 
         {error && (
           <div className="flex items-center gap-2 rounded-xl bg-danger-soft px-3.5 py-2.5 text-sm font-medium text-danger">
