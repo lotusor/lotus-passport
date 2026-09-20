@@ -172,7 +172,7 @@ export function ConnectedAccountsSection({
     <SectionCard
       icon={Link2}
       title="关联第三方账号"
-      description="绑定后可使用对应平台一键登录，身份由莲花通行证统一签发。"
+      description="绑定后可使用对应平台一键登录，身份由lotus通行证统一签发。"
     >
       <ul className="divide-y divide-line">
         {providers.map((p) => {

@@ -113,7 +113,7 @@ export default function PasswordLoginPage() {
             密码登录
           </h1>
           <p className="mt-2 text-[15px] leading-relaxed text-ink-muted">
-            使用账号名 / 邮箱与密码登录莲花通行证
+            使用账号名 / 邮箱与密码登录lotus通行证
           </p>
         </div>
 

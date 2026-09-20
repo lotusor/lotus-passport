@@ -2,7 +2,7 @@
 HTML 邮件模板（2026-08-27 美化）——验证码 / 密码重置共用。
 
 设计要点：
-* 品牌头部：favicon 图标（https://account.eacm.cn/icon.png，108×108）+「莲花通行证」
+* 品牌头部：favicon 图标（https://account.eacm.cn/icon.png，108×108）+「lotus通行证」
   字标；头部底色用品牌 accent 朱红（与 SPA 一致：#d9543f）。
 * 验证码大字号展示（36px、letter-spacing 拉开），10 分钟有效期提示。
 * 纯内联样式 + table 布局：Gmail / Outlook / QQ 邮箱等主流客户端会剥离
@@ -12,7 +12,7 @@ HTML 邮件模板（2026-08-27 美化）——验证码 / 密码重置共用。
   客户端与纯文本预览使用（两者由调用方分别传入）。
 """
 
-BRAND_NAME = "莲花通行证"
+BRAND_NAME = "lotus通行证"
 BRAND_ICON = "https://account.eacm.cn/icon.png"
 ACCENT = "#d9543f"
 ACCENT_DARK = "#a8331f"

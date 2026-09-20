@@ -7,7 +7,7 @@ import { Footer } from "@/components/Footer";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "莲花通行证 · Lotus Passport",
+  title: "lotus通行证 · Lotus Passport",
   description: "统一身份认证中心 — 管理你的登录方式、关联账号与安全设置。",
   // 工信部 ICP 备案号（项目指令要求在 footer 与 metadata 同时留痕）。
   icons: {

@@ -122,7 +122,7 @@ export function OAuthBindings() {
             <div>
               <p className="font-semibold text-ink">统一登录说明</p>
               <p className="mt-0.5 text-sm leading-relaxed text-ink-muted">
-                莲花通行证聚合微信、QQ、GitHub 的 OAuth 登录，验证身份后签发统一
+                lotus通行证聚合微信、QQ、GitHub 的 OAuth 登录，验证身份后签发统一
                 JWT。业务权限由各接入方（如 E-algo Rank）自行维护。
               </p>
             </div>

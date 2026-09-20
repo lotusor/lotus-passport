@@ -156,7 +156,7 @@ export default function LoginPage() {
             <Sparkles className="h-7 w-7" />
           </span>
           <h1 className="text-2xl font-bold tracking-tight text-ink">
-            欢迎使用莲花通行证
+            欢迎使用lotus通行证
           </h1>
           <p className="mt-2 text-[15px] leading-relaxed text-ink-muted">
             Lotus Passport — 统一身份认证中心
@@ -251,7 +251,7 @@ export default function LoginPage() {
         )}
 
         <p className="mt-8 text-center text-xs text-ink-muted">
-          登录即表示你同意莲花通行证的服务条款与隐私政策
+          登录即表示你同意lotus通行证的服务条款与隐私政策
         </p>
       </div>
     </div>

@@ -1,5 +1,5 @@
 /**
- * 莲花通行证 — API 客户端
+ * lotus通行证 — API 客户端
  *
  * 所有与 Django 后端 (lotus-passport) 的通信都通过这里。
  * 浏览器端：同源代理 (/api/... → next.config.mjs rewrites)

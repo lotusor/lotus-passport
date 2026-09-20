@@ -246,7 +246,7 @@ OAUTH_CLIENTS = {
         "name": "E-algo Rank",
         "logo": "",
         "scopes": [
-            "以你的莲花通行证身份登录 E-algo Rank",
+            "以你的lotus通行证身份登录 E-algo Rank",
             "读取你的昵称、头像等基本资料",
         ],
     },

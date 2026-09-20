@@ -83,7 +83,7 @@ function ConsentInner() {
             授权登录
           </h1>
           <p className="mt-2 text-[15px] leading-relaxed text-ink-muted">
-            莲花通行证 · 统一身份认证中心
+            lotus通行证 · 统一身份认证中心
           </p>
         </div>
 
@@ -123,7 +123,7 @@ function ConsentInner() {
               <div className="my-4 h-px bg-line" />
 
               <p className="text-sm text-ink-soft">
-                该应用请求使用你的莲花通行证身份登录，并获取以下信息：
+                该应用请求使用你的lotus通行证身份登录，并获取以下信息：
               </p>
               <ul className="mt-3 space-y-2">
                 {info.scopes.map((s) => (

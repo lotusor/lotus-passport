@@ -77,7 +77,7 @@ function SidebarContent({
           <Lotus className="h-10 w-10 text-accent" />
         </span>
         <div className="leading-tight">
-          <p className="text-sm font-semibold text-white">莲花通行证</p>
+          <p className="text-sm font-semibold text-white">lotus通行证</p>
           <p className="text-xs text-white/50">Lotus Passport</p>
         </div>
       </Link>

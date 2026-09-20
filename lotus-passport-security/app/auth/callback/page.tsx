@@ -157,7 +157,7 @@ export default function AuthCallbackPage() {
         )}
 
         <h2 className="text-lg font-semibold text-ink">
-          {status === "error" ? "登录失败" : "莲花通行证"}
+          {status === "error" ? "登录失败" : "lotus通行证"}
         </h2>
 
         {status === "bound" ? (

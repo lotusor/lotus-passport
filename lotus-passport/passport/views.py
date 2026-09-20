@@ -1616,12 +1616,12 @@ class PasswordResetRequestView(APIView):
                 "重置你的密码",
                 link,
                 "重置密码",
-                "你（或他人）刚刚请求重置莲花通行证密码。",
+                "你（或他人）刚刚请求重置lotus通行证密码。",
                 minutes=minutes,
             )
             try:
                 send_mail(
-                    subject="【莲花通行证】重置你的密码",
+                    subject="【lotus通行证】重置你的密码",
                     message=text,
                     html_message=html,
                     from_email=settings.DEFAULT_FROM_EMAIL,
@@ -1710,10 +1710,10 @@ class PasswordResetConfirmView(APIView):
 # --------------------------------------------------------------------------- #
 # 各 purpose 的邮件文案（subject, 场景说明行）。验证码本身由模板渲染。
 _EMAIL_CODE_COPY = {
-    "login": ("你的莲花通行证登录验证码", "你正在进行邮箱验证码登录"),
-    "bind": ("绑定你的莲花通行证邮箱", "你正在为莲花通行证账户绑定此邮箱"),
-    "new": ("验证你的新邮箱", "你正在将莲花通行证账户邮箱更改为此邮箱"),
-    "old": ("确认更改莲花通行证邮箱", "你正在更改莲花通行证账户邮箱，请确认是本人操作"),
+    "login": ("你的lotus通行证登录验证码", "你正在进行邮箱验证码登录"),
+    "bind": ("绑定你的lotus通行证邮箱", "你正在为lotus通行证账户绑定此邮箱"),
+    "new": ("验证你的新邮箱", "你正在将lotus通行证账户邮箱更改为此邮箱"),
+    "old": ("确认更改lotus通行证邮箱", "你正在更改lotus通行证账户邮箱，请确认是本人操作"),
 }
 
 
@@ -1732,7 +1732,7 @@ def _send_email_code(request, email: str, purpose: str) -> tuple[bool, str]:
     html, text = email_templates.code_email(subject, code, purpose_line)
     try:
         send_mail(
-            subject=f"【莲花通行证】{subject}",
+            subject=f"【lotus通行证】{subject}",
             message=text,
             html_message=html,
             from_email=settings.DEFAULT_FROM_EMAIL,

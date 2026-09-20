@@ -15,7 +15,7 @@ export function OAuthClients() {
     <>
       <Reveal>
         <p className="text-sm leading-relaxed text-ink-muted">
-          以下应用已接入莲花通行证，可使用你的通行证账号登录。授权范围以各应用实际申请为准。
+          以下应用已接入lotus通行证，可使用你的通行证账号登录。授权范围以各应用实际申请为准。
         </p>
       </Reveal>
 
