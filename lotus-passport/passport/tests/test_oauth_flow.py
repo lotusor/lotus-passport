@@ -100,13 +100,41 @@ def test_login_unknown_provider_is_rejected(client):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_existing_email_is_merged_not_duplicated(client):
-    PassportUser.objects.create(email="u@example.com", nickname="Existing")
+def test_provider_email_never_hijacks_existing_account(client):
+    """provider 回报的邮箱撞上已有账号时：必须新建，绝不能复用（防账号接管）。
+
+    旧行为是「按邮箱合并」，而 GitHub 的公开 email 可以填成任意未验证地址，
+    等于任何人都能登录到邮箱真正主人的账号上。合并只能由已登录用户走 bind。
+    """
+    victim = PassportUser.objects.create(email="u@example.com", nickname="Existing")
+    victim.set_password("Str0ng-pass!")
+    victim.save()
     before = PassportUser.objects.count()
 
     r1 = client.get("/api/v1/oauth/github/login/")
     state = parse_qs(urlparse(r1.json()["authorize_url"]).query)["state"][0]
+    r2 = client.get(f"/api/v1/oauth/github/callback/?code=abc&state={state}")
+
+    assert r2.status_code == 200
+    assert PassportUser.objects.count() == before + 1        # 新建，不是复用
+    acc = OAuthAccount.objects.get(provider="github")
+    assert acc.user_id != victim.id                          # 挂到了新账号
+    assert str(r2.json()["passport_user_id"]) == str(acc.user.passport_id)
+
+    victim.refresh_from_db()
+    assert victim.has_usable_password()                      # 没被动过
+    assert not OAuthAccount.objects.filter(user=victim).exists()
+    # 已被占用的邮箱不会被搬到新账号上（unique + 不归属自己）
+    assert acc.user.email is None
+    assert acc.user.nickname == "U"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_unclaimed_provider_email_still_lands_on_new_account(client):
+    """本地没人用这个邮箱时，新账号照旧拿到它（只是不再拿它去命中别人）。"""
+    r1 = client.get("/api/v1/oauth/github/login/")
+    state = parse_qs(urlparse(r1.json()["authorize_url"]).query)["state"][0]
     client.get(f"/api/v1/oauth/github/callback/?code=abc&state={state}")
 
-    assert PassportUser.objects.count() == before  # no new user, just a link
-    assert OAuthAccount.objects.filter(provider="github").count() == 1
+    acc = OAuthAccount.objects.get(provider="github")
+    assert acc.user.email == "u@example.com"

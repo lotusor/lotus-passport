@@ -155,6 +155,12 @@ def _claims_of(raw_token) -> dict:
 def link_or_create_user(identity, provider: str, raw_token: dict, expires_at):
     """Find-or-create the PassportUser + OAuthAccount for a normalized identity.
 
+    **绝不按 provider 回报的 email 命中已有账号。** 邮箱不是所有权证明：
+    第三方可以回报任意地址（GitHub 的公开 email 甚至不要求验证），命中即复用
+    就等于把先注册的人交给后登录的人。要合并只能由**已登录**用户走 bind 流程
+    （``bind_existing_user``，那里对「身份已被他人占用」返回 409）。
+    provider 回报的邮箱只有在本地未被占用时才落到新建的账号上。
+
     Wrapped in a single transaction: this does up to three writes (user,
     oauth account, encrypted tokens). Without it, concurrent logins on SQLite
     interleave three separate autocommit transactions and hit
@@ -170,19 +176,15 @@ def link_or_create_user(identity, provider: str, raw_token: dict, expires_at):
     if acc is not None:
         user = acc.user
     else:
-        user = None
-        if identity.email:
-            user = PassportUser.objects.filter(email=identity.email).first()
-        if user is None:
-            # create_user() sets an UNUSABLE password, so OAuth-only accounts
-            # are correctly password-less (has_usable_password() == False).
-            # A bare objects.create() leaves an empty string that Django treats
-            # as a usable password, which would wrongly let /login/ attempt it.
-            user = PassportUser.objects.create_user(
-                email=identity.email,
-                nickname=identity.nickname,
-                avatar=identity.avatar,
-            )
+        # create_user() sets an UNUSABLE password, so OAuth-only accounts
+        # are correctly password-less (has_usable_password() == False).
+        # A bare objects.create() leaves an empty string that Django treats
+        # as a usable password, which would wrongly let /login/ attempt it.
+        user = PassportUser.objects.create_user(
+            email=_unclaimed_email(identity.email),
+            nickname=identity.nickname,
+            avatar=identity.avatar,
+        )
         acc = OAuthAccount.objects.create(
             user=user, provider=provider, provider_user_id=identity.provider_user_id
         )
@@ -192,6 +194,20 @@ def link_or_create_user(identity, provider: str, raw_token: dict, expires_at):
         expires_at=expires_at,
     )
     return user
+
+
+def _unclaimed_email(email: str | None) -> str | None:
+    """provider 回报的邮箱只有在本地没人用时才留给新建账号。
+
+    ``email`` 上有 unique 约束，撞上去就是一个 500；而且「谁先用第三方登录，
+    谁就把这个地址占到自己新账号上」本身也不成立——地址的真正主人应当是自己
+    注册、或登录后走 bind。新账号宁可没有邮箱，之后在个人资料里补。
+    """
+    if not email:
+        return None
+    if PassportUser.objects.filter(email__iexact=email).exists():
+        return None
+    return email
 
 
 class OAuthLinkConflict(Exception):

@@ -44,6 +44,65 @@ def test_github_exchange_and_identity(mock_oauth):
 
 
 @patch("passport.providers.OAuth2Session")
+def test_github_ignores_unverified_public_email(mock_oauth):
+    """/user 的公开 email 可以是未验证的任意地址 → 只能信 /user/emails 的 verified 位。
+
+    攻击者可以把 GitHub 公开邮箱填成受害者的地址；若拿它当身份，passport 就会
+    把登录者当成受害者（历史版本会按邮箱命中已有账号）。
+    """
+    mock_oauth.return_value = _mock_session({"access_token": "gh_at", "expires_in": 3600})
+    with patch("passport.providers.requests.get") as mget:
+        mget.side_effect = [
+            MagicMock(json=lambda: {
+                "id": 777, "login": "attacker", "avatar_url": "https://a",
+                "email": "victim@corp.com",          # 未验证的冒名地址
+            }),
+            MagicMock(json=lambda: [
+                {"email": "victim@corp.com", "primary": True, "verified": False},
+                {"email": "attacker@own.dev", "primary": False, "verified": True},
+            ]),
+        ]
+        p = GitHubProvider("cid", "csec", "https://cb")
+        token, _ = p.exchange_code("code")
+        ident = p.fetch_identity(token)
+
+    assert ident.email == "attacker@own.dev"          # 只取 verified 的那条
+    assert ident.nickname == "attacker"
+
+
+@patch("passport.providers.OAuth2Session")
+def test_github_email_none_when_nothing_verified(mock_oauth):
+    mock_oauth.return_value = _mock_session({"access_token": "gh_at", "expires_in": 3600})
+    with patch("passport.providers.requests.get") as mget:
+        mget.side_effect = [
+            MagicMock(json=lambda: {"id": 778, "login": "x", "email": "who@ever.com"}),
+            MagicMock(json=lambda: [{"email": "who@ever.com", "primary": True,
+                                     "verified": False}]),
+        ]
+        p = GitHubProvider("cid", "csec", "https://cb")
+        token, _ = p.exchange_code("code")
+        ident = p.fetch_identity(token)
+
+    assert ident.email is None
+
+
+@patch("passport.providers.OAuth2Session")
+def test_github_email_none_when_emails_endpoint_errors(mock_oauth):
+    """邮箱接口挂了要 fail closed（None），不能退回用公开字段。"""
+    mock_oauth.return_value = _mock_session({"access_token": "gh_at", "expires_in": 3600})
+    with patch("passport.providers.requests.get") as mget:
+        mget.side_effect = [
+            MagicMock(json=lambda: {"id": 779, "login": "x", "email": "who@ever.com"}),
+            MagicMock(json=lambda: {"message": "Bad credentials", "documentation_url": "…"}),
+        ]
+        p = GitHubProvider("cid", "csec", "https://cb")
+        token, _ = p.exchange_code("code")
+        ident = p.fetch_identity(token)
+
+    assert ident.email is None
+
+
+@patch("passport.providers.OAuth2Session")
 def test_wechat_identity_prefers_unionid(mock_oauth):
     mock_oauth.return_value = _mock_session(
         {"access_token": "wx_at", "openid": "o123", "unionid": "u123", "expires_in": 7200}

@@ -96,22 +96,30 @@ class GitHubProvider(BaseProvider):
             "Accept": "application/vnd.github+json",
         }
         user = requests.get(self.userinfo_url, headers=headers, timeout=10).json()
-        email = user.get("email")
-        if not email:
-            try:
-                emails = requests.get(self.emails_url, headers=headers, timeout=10).json()
-                primary = next(
-                    (e for e in emails if e.get("primary") and e.get("verified")), None
-                )
-                email = primary["email"] if primary else None
-            except Exception:  # noqa: BLE001
-                email = None
+        # 邮箱只认 /user/emails 里 verified 的那条。/user 返回的公开 email 可以是
+        # 任意未验证地址（谁都能把它填成别人的），而 passport 会拿这个值落库到账号
+        # 上并作为找回密码的线索 —— 拿它当身份的一部分等于把邮箱交给先来者。
+        email = self._verified_email(headers)
         return Identity(
             provider_user_id=str(user["id"]),
             email=email,
             nickname=user.get("login") or user.get("name") or "",
             avatar=user.get("avatar_url") or "",
         )
+
+    def _verified_email(self, headers: dict) -> str | None:
+        """GitHub 上确实归本账号所有的邮箱：优先 primary，其次任意 verified，全无则 None。"""
+        try:
+            emails = requests.get(self.emails_url, headers=headers, timeout=10).json()
+        except Exception:  # noqa: BLE001 - 取不到邮箱就当作没有，不能编一个出来
+            return None
+        if not isinstance(emails, list):
+            return None
+        verified = [e for e in emails if isinstance(e, dict) and e.get("verified")]
+        if not verified:
+            return None
+        primary = next((e for e in verified if e.get("primary")), verified[0])
+        return primary.get("email") or None
 
 
 class WeChatProvider(BaseProvider):
