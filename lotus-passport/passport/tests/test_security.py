@@ -85,10 +85,24 @@ def test_callback_ignores_injected_redirect_uri(client):
 
 @pytest.mark.django_db(transaction=True)
 def test_callback_honours_state_stored_redirect_uri(client):
+    """令牌最终落在 state 里存的 redirect_uri 上——中间多一跳确认页也不串目标。
+
+    外部 origin 的回调不再直接把 token 弹给应用：先 302 到授权确认页并带一次性
+    ticket，用户 allow 后才 fragment 回跳。这条用例锁住「回跳目标只认 state 存值」
+    这个防开放重定向的不变量，覆盖到确认页之后的第二跳。
+    """
     state = _login_state(client, "http://localhost:3000/auth/callback")
     r = client.get(f"/api/v1/oauth/github/callback/?code=abc&state={state}")
     assert r.status_code == 302
-    location = r.headers.get("Location", "")
+    hop = r.headers.get("Location", "")
+    parsed = urlparse(hop)
+    assert "oauth/consent" in parsed.path, hop
+    ticket = parse_qs(parsed.query)["ticket"][0]
+
+    r2 = client.post("/api/v1/oauth/consent/",
+                     {"ticket": ticket, "decision": "allow"}, format="json")
+    assert r2.status_code == 302
+    location = r2.headers.get("Location", "")
     assert location.startswith("http://localhost:3000/auth/callback#")
     assert "access_token" in location
 

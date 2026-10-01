@@ -3,9 +3,27 @@
 Network is fully mocked; we only assert normalization into `Identity` and the
 authorize-URL shape. The storage/encryption path is covered in test_oauth_flow.
 """
+import json
 from unittest.mock import MagicMock, patch
 
 from passport.providers import GitHubProvider, QQProvider, WeChatProvider
+
+
+class _Resp:
+    """`requests.Response` 的最小替身：`.json()` 按真实语义去解 `.text`。
+
+    用 MagicMock 当响应是个陷阱——`mock.json()` 不抛异常而是返回另一个 mock，
+    于是 QQ「先试 JSON、失败再 parse_qsl」的兜底分支永远走不到，测试拿到的是
+    MagicMock 而不是解析结果。真实 requests 不看 Content-Type，直接解码 body，
+    解不动抛 ValueError（QQ 既会回 text/html 的 JSON，也会回 urlencoded）。
+    """
+
+    def __init__(self, text: str, headers: dict | None = None):
+        self.text = text
+        self.headers = headers or {}
+
+    def json(self):
+        return json.loads(self.text)
 
 
 def _mock_session(token: dict):
@@ -122,10 +140,8 @@ def test_qq_exchange_and_identity_urlencoded():
     with patch("passport.providers.requests.post") as mpost, patch(
         "passport.providers.requests.get"
     ) as mget:
-        mpost.return_value = MagicMock(
-            headers={"Content-Type": "text/html"},
-            text="access_token=qq_at&expires_in=3600",
-        )
+        mpost.return_value = _Resp(
+            "access_token=qq_at&expires_in=3600", {"Content-Type": "text/html"})
         mget.side_effect = [
             MagicMock(text='callback( {"openid":"QQOPENID"} );'),
             MagicMock(json=lambda: {"nickname": "QQ用户", "figureurl_qq_2": "https://qq"}),
@@ -145,10 +161,9 @@ def test_qq_exchange_json_with_text_html_content_type():
     with patch("passport.providers.requests.post") as mpost, patch(
         "passport.providers.requests.get"
     ) as mget:
-        mpost.return_value = MagicMock(
-            headers={"Content-Type": "text/html;charset=utf-8"},
-            text='{"access_token":"qq_at","expires_in":3600,"refresh_token":"r"}',
-        )
+        mpost.return_value = _Resp(
+            '{"access_token":"qq_at","expires_in":3600,"refresh_token":"r"}',
+            {"Content-Type": "text/html;charset=utf-8"})
         mget.side_effect = [
             MagicMock(text='callback( {"openid":"QQOPENID"} );'),
             MagicMock(json=lambda: {"nickname": "QQ用户", "figureurl_qq_2": "https://qq"}),
@@ -169,10 +184,9 @@ def test_qq_parse_openid_json():
 def test_qq_exchange_raises_on_error_json():
     """QQ error JSON must surface the real reason, not a KeyError 502."""
     with patch("passport.providers.requests.post") as mpost:
-        mpost.return_value = MagicMock(
-            headers={"Content-Type": "application/json"},
-            json=lambda: {"error": 100007, "error_description": "client_secret error"},
-        )
+        mpost.return_value = _Resp(
+            '{"error": 100007, "error_description": "client_secret error"}',
+            {"Content-Type": "application/json"})
         p = QQProvider("cid", "csec", "https://cb")
         try:
             p.exchange_code("code")
@@ -184,10 +198,9 @@ def test_qq_exchange_raises_on_error_json():
 def test_qq_exchange_raises_on_error_urlencoded():
     """QQ error urlencoded body must also be detected."""
     with patch("passport.providers.requests.post") as mpost:
-        mpost.return_value = MagicMock(
-            headers={"Content-Type": "text/html"},
-            text="error=100007&error_description=client_secret error",
-        )
+        mpost.return_value = _Resp(
+            "error=100007&error_description=client_secret error",
+            {"Content-Type": "text/html"})
         p = QQProvider("cid", "csec", "https://cb")
         try:
             p.exchange_code("code")
