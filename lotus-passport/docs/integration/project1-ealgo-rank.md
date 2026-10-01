@@ -64,7 +64,7 @@ passport 侧已为项目1 预留白名单，直接可用：
   - `email`、`nickname`
   - `exp`、`iat`、`jti`、`iss`
 - **`email` 不是身份键，禁止用来关联账号**：第三方登录回报的邮箱可以是任意地址
-  （GitHub 的公开 email 甚至不要求验证），passport 自 2026-09-30 起也**不再**按邮箱
+  （GitHub 的公开 email 甚至不要求验证），passport 自 2026-10-01 起也**不再**按邮箱
   命中已有账号（首登一律新建，合并只能由已登录用户走 bind）。项目1 同理：
   只按 `passport_user_id` 建/关联用户，`email` 仅用于展示与找回。
 - **RS256 公钥轮换**：JWKS 在轮换重叠期会返回多把公钥（active + 上一把），
