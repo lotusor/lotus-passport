@@ -154,6 +154,23 @@ jobs:
         run: node --test
 
   # ------------------------------------------------------------------ #
+  # eacm.cn 门户是单文件内联 CSS/JS、无构建步骤 —— 改坏了没有任何编译期信号，
+  # 全靠这条 job 兜住 AGENTS §6 的两条不变量（色值必须走 :root 变量、
+  # 主题脚本必须前置于 <style> 防 FOUC）。纯标准库，不装依赖。
+  portal:
+    name: portal (eacm.cn 静态站)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Style token invariants
+        run: python .github/scripts/check_portal_style.py
+
+  # ------------------------------------------------------------------ #
   audit:
     name: dependency audit (advisory)
     runs-on: ubuntu-latest

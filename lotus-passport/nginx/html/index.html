@@ -44,6 +44,11 @@
     --accent-soft:rgba(61,139,255,.14);
     --ok:#34d399;
     --err:#f25555;
+    /* 终端假窗口的三枚圆点：刻意不随主题变（--ok/--err 在浅色主题里会被覆盖成
+       深绿/砖红，圆点跟着变就不是「窗口控件」而是「状态灯」了），故单开一组 token。 */
+    --dot-close:#f25555;
+    --dot-min:#f2b655;
+    --dot-ok:#34d399;
 
     /* --- 主题化扩展令牌（浅色主题会整套覆盖） --- */
     --accent-rgb:61,139,255;
@@ -428,9 +433,9 @@
 
   <div class="term reveal" data-delay="1">
     <div class="term-head">
-      <span class="term-dot" style="background:#f25555"></span>
-      <span class="term-dot" style="background:#f2b655"></span>
-      <span class="term-dot" style="background:#34d399"></span>
+      <span class="term-dot" style="background:var(--dot-close)"></span>
+      <span class="term-dot" style="background:var(--dot-min)"></span>
+      <span class="term-dot" style="background:var(--dot-ok)"></span>
       <span class="term-title">eacm — service status</span>
     </div>
     <div class="term-body" id="statusTerm">
