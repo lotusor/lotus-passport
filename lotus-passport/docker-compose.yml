@@ -21,7 +21,9 @@ services:
     env_file:
       - .env.production
     environment:
-      # 容器内需允许 localhost/127.0.0.1 供 healthcheck；对外仅 passport.eacm.cn。
+      # 需放行 localhost/127.0.0.1 供 healthcheck 用；gunicorn 只绑回环，
+      # 所以这两个名字外部拿不到（写 "0.0.0.0" 绑定 + 留 localhost 白名单时，
+      # 任何直连者都能用 Host: localhost 冒充内网请求）。
       DEBUG: "False"
       ALLOWED_HOSTS: passport.eacm.cn,localhost,127.0.0.1
       PASSPORT_OAUTH_REDIRECT_BASE: https://passport.eacm.cn/api/v1/oauth
@@ -60,8 +62,11 @@ services:
       # 同 host 网络 → 直接打宿主 127.0.0.1（也等同于容器内 127.0.0.1）
       PASSPORT_API_ORIGIN: http://127.0.0.1:8000
       NODE_ENV: production
-      HOSTNAME: "0.0.0.0"
       PORT: "3000"
+    # 只绑回环：公网访问必须经 nginx:443 的 account.eacm.cn vhost。
+    # `next start` 的 -H 不读 HOSTNAME 环境变量（只有 `next dev` 读），默认 0.0.0.0，
+    # 所以必须走 CLI 参数；用 npm -- 透传给 start 脚本，避免重建镜像。
+    command: ["npm", "run", "start", "--", "-H", "127.0.0.1", "-p", "3000"]
     healthcheck:
       # Next.js 在没有 build 错误时对任意 GET 都返回 HTML。
       test: ["CMD-SHELL", "node -e \"const http=require('http');http.get('http://127.0.0.1:3000/',r=>process.exit(r.statusCode>=200&&r.statusCode<400?0:1)).on('error',()=>process.exit(1))\""]
@@ -69,7 +74,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 90s   # 首次启动要 npm ci + next build，给宽裕
-    # Host 网络：监听 0.0.0.0:3000 = 宿主机 3000；nginx 反代 127.0.0.1:3000。
+    # Host 网络：HOSTNAME=127.0.0.1 → 只监听宿主回环 3000，公网不可直连；nginx 反代 127.0.0.1:3000。
     network_mode: "host"
     restart: unless-stopped
 
