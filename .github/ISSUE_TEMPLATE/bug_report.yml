@@ -1,0 +1,55 @@
+name: Bug report
+description: 报告可复现的功能缺陷（安全漏洞请走私密渠道）
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先确认这不是安全漏洞。安全漏洞请通过 Security Advisories 私下报告，不要在本 Issue 中粘贴密码、Token、真实用户数据或生产主机信息。
+  - type: textarea
+    id: summary
+    attributes:
+      label: 现象
+      description: 实际发生了什么？
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 最小、可重复的步骤
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / 提交
+      placeholder: commit sha 或分支
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志（已脱敏）
+      description: 请删除 Token、Cookie、邮箱、IP、用户数据后再粘贴
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我已确认内容已脱敏，不包含真实凭据或用户数据
+          required: true

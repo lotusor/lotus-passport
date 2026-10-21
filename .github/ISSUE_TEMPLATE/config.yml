@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/lotusor/lotus-passport/security/advisories/new
+    about: Please report vulnerabilities privately. Do not open a public issue.
+  - name: Integration guide
+    url: https://github.com/lotusor/lotus-passport/blob/main/lotus-passport/docs/integration/project1-ealgo-rank.md
+    about: Lotus Passport integration contract for E-algo Rank.

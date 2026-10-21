@@ -1,0 +1,45 @@
+{
+  "name": "lotus-passport",
+  "version": "1.0.0",
+  "description": "Verify Lotus Passport unified-auth JWTs (RS256 + JWKS) in Node, Next.js, Deno, Bun and Edge runtimes. Zero dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./express": {
+      "types": "./src/express.d.ts",
+      "default": "./src/express.js"
+    },
+    "./next": {
+      "types": "./src/next.d.ts",
+      "default": "./src/next.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "jwt",
+    "jwks",
+    "rs256",
+    "oauth",
+    "sso",
+    "authentication",
+    "nextjs",
+    "edge"
+  ],
+  "dependencies": {},
+  "devDependencies": {}
+}

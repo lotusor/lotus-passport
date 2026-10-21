@@ -1,0 +1,11 @@
+# Install: pip install pre-commit && pre-commit install
+# The hook scans the whole tree, not just staged files, because admission rules
+# apply to paths and content that may already be tracked.
+repos:
+  - repo: local
+    hooks:
+      - id: public-repo-guard
+        name: public repo guard
+        entry: python .github/scripts/check_public_repo.py
+        language: system
+        pass_filenames: false

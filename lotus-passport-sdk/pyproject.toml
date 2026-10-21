@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lotus-passport-sdk"
+version = "1.0.0"
+description = "Verify Lotus Passport unified-auth JWTs (RS256 + JWKS) from any Python service"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Lotus Passport" }]
+keywords = ["jwt", "jwks", "rs256", "oauth", "sso", "authentication"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+
+# Kept intentionally tiny: a verification SDK that drags in a web framework is
+# a dependency-conflict machine for the apps that install it.
+dependencies = [
+    "PyJWT[crypto]>=2.8",
+    "requests>=2.28",
+]
+
+[project.optional-dependencies]
+fastapi = ["fastapi>=0.100"]
+drf = ["djangorestframework>=3.14", "Django>=4.2"]
+flask = ["Flask>=2.3"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1"]
+
+[project.urls]
+Documentation = "https://github.com/emoera/lotus-passport#readme"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ANN", "D"]
+ignore = ["D203", "D213", "ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D", "ANN"]
+"examples/*" = ["D", "ANN"]

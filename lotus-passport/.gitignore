@@ -1,0 +1,28 @@
+# --- Secrets / keys ---
+.env
+.env.production            # 生产真实密钥(SECRET_KEY/TOKEN_ENCRYPTION_KEY/OAuth/hCaptcha) — NEVER commit
+.env.docker                # Docker production secrets (env_file) — NEVER commit
+keys/                      # RSA private key — NEVER commit
+*.pem
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+db.sqlite3
+db.sqlite3-wal
+db.sqlite3-shm
+
+# --- Node / Next.js (frontend) ---
+node_modules/
+.next*/
+
+# --- Django generated artifacts (do NOT commit) ---
+staticfiles/
+media/
+db.sqlite3-journal
+*.sqlite3-*
+
+# --- Misc ---
+.DS_Store
+*.log

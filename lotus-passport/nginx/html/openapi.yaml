@@ -1,0 +1,743 @@
+openapi: 3.0.3
+info:
+  title: Lotus Passport API
+  version: "1.0.0"
+  description: |
+    Lotus Passport 统一身份认证服务 —— 对外集成契约（面向接入方，如 e-algo rank / `rank.eacm.cn`）。
+
+    ## 关键事实（生产已核实 2026-08-16）
+    - Base URL（生产）：`https://passport.eacm.cn`
+    - 签名算法：**RS256**（非对称；接入方用 **JWKS 公钥**验签，无需共享密钥）
+    - issuer (`iss`)：`lotus-passport`
+    - 用户标识声明：`user_id`（= `passport_user_id`）
+    - 令牌寿命：access **30 分钟** / refresh **14 天**
+    - JWKS 端点：`/.well-known/jwks.json`（同时提供 `/api/v1/.well-known/jwks.json`）
+    - 机器可读端点映射：`/.well-known/passport-configuration`
+
+    ## 设计定位
+    Lotus Passport **不是** 完整 OIDC Provider（无 `id_token`、无 `/token` grant 端点），
+    因此 discovery 故意放在 `/.well-known/passport-configuration` 而非标准
+    `/.well-known/openid-configuration`，避免通用 OIDC 客户端误用。
+    接入方鉴权模型：**前端拿 JWT → 调 `/api/v1/userinfo/` 解析 `passport_user_id` → 建立/关联本地账号**。
+
+    ## 错误体（统一）
+    所有错误返回统一 JSON：`{ "error": { "code": <HTTP 状态码>, "message": "<可读信息>" } }`。
+  contact:
+    name: Lotus Passport 维护方
+    url: https://passport.eacm.cn
+  license:
+    name: 内部服务
+servers:
+  - url: https://passport.eacm.cn
+    description: 生产环境
+  - url: http://localhost:8000
+    description: 本地联调（dev 自动放开 localhost CORS）
+
+tags:
+  - name: Discovery
+    description: 机器可读端点映射与公钥分发
+  - name: OAuth
+    description: 第三方登录发起与回调（GitHub / QQ / 微信）
+  - name: Token
+    description: access/refresh 令牌的刷新与吊销
+  - name: User
+    description: 已登录用户的身份解析
+  - name: Account
+    description: 账号自服务（资料/设备/会话/绑定），由 passport 自身门户消费
+
+paths:
+  /.well-known/passport-configuration:
+    get:
+      tags: [Discovery]
+      operationId: getConfiguration
+      summary: 端点映射（SDK 引导）
+      description: 返回所有关键端点与算法/声明支持列表，供 SDK 从单一 base URL 自举。
+      security: []
+      responses:
+        "200":
+          description: 端点映射
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Configuration"
+              example:
+                issuer: lotus-passport
+                jwks_uri: https://passport.eacm.cn/.well-known/jwks.json
+                userinfo_endpoint: https://passport.eacm.cn/api/v1/userinfo/
+                token_refresh_endpoint: https://passport.eacm.cn/api/v1/token/refresh/
+                authorization_endpoint_template: https://passport.eacm.cn/api/v1/oauth/{provider}/login/
+                id_token_signing_alg_values_supported: [RS256]
+                claims_supported: [passport_user_id, user_id, email, nickname, exp, iat, jti, iss]
+                providers_supported: [github, qq]
+
+  /.well-known/jwks.json:
+    get:
+      tags: [Discovery]
+      operationId: getJwks
+      summary: RSA 公钥集（RS256 验签）
+      description: |
+        返回一个或多个 JWK（密钥轮换重叠期会同时返回 active + 上一把）。
+        每个 JWK 带 `kid`，接入方按令牌 header 的 `kid` 取对应公钥验签。
+        接入方**必须**按 `kid` 索引缓存并定期刷新，不要写死公钥。
+      security: []
+      responses:
+        "200":
+          description: JWK Set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JWKSet"
+        "404":
+          description: RS256 未启用（本生产环境不会触发）
+
+  /api/v1/health/:
+    get:
+      tags: [Discovery]
+      operationId: healthCheck
+      summary: 存活探针
+      security: []
+      responses:
+        "200":
+          description: 服务存活
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  service: { type: string, example: lotus-passport }
+
+  /api/v1/oauth/{provider}/login/:
+    get:
+      tags: [OAuth]
+      operationId: oauthLogin
+      summary: 发起第三方登录
+      description: |
+        校验 provider 与 `redirect_uri` 白名单后，返回第三方授权页 URL（含 `state`）。
+        接入方前端拿到 `authorize_url` 后把浏览器跳转过去；第三方回调会落到 `/api/v1/oauth/{provider}/callback/`。
+        `redirect_uri` 为 origin 级白名单（放行该 origin 任意路径）。
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [github, qq, wechat] }
+          description: 第三方提供商（微信暂未启用）
+        - name: redirect_uri
+          in: query
+          required: false
+          schema: { type: string }
+          description: 回跳地址，必须在 OAUTH_ALLOWED_REDIRECT_URIS 中（origin 级）
+      responses:
+        "200":
+          description: 授权页 URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authorize_url: { type: string, example: "https://github.com/login/oauth/authorize?client_id=xxx&state=yyy" }
+        "400":
+          description: provider 不支持 / 未配置 / redirect_uri 不在白名单
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                unsupported:
+                  value: { error: { code: 400, message: "不支持的 OAuth 提供商: foo" } }
+                badRedirect:
+                  value: { error: { code: 400, message: "redirect_uri 不在允许列表中，请管理员在 OAUTH_ALLOWED_REDIRECT_URIS 中配置该回跳地址" } }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/oauth/{provider}/callback/:
+    get:
+      tags: [OAuth]
+      operationId: oauthCallback
+      summary: 第三方登录回调（签发 JWT）
+      description: |
+        第三方授权后回跳此处。完成账号匹配/创建后：
+        - 若 state 中记录了 `redirect_uri` 且 `response_mode != json` → **302 重定向**到 `redirect_uri#access_token=...&token_type=...&refresh_token=...&passport_user_id=...`（fragment 形式，前端从 hash 解析）
+        - 否则（如 `?response_mode=json`）→ **200 JSON** 返回令牌包
+        `redirect_uri` 仅取自已校验的 OAuth state，不接受回调直传，杜绝开放重定向。
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [github, qq, wechat] }
+        - name: code
+          in: query
+          required: true
+          schema: { type: string }
+        - name: state
+          in: query
+          required: true
+          schema: { type: string }
+        - name: response_mode
+          in: query
+          required: false
+          schema: { type: string, example: json }
+        - name: error
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: 令牌包（response_mode=json 时）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenSet" }
+        "302":
+          description: 重定向回接入方（fragment 携带令牌）
+          headers:
+            Location:
+              description: 带 #fragment 的 redirect_uri
+              schema: { type: string }
+        "400":
+          description: 缺 code/state / state 失效 / 提供商报错
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                missing:
+                  value: { error: { code: 400, message: "缺少 code 或 state 参数" } }
+                badState:
+                  value: { error: { code: 400, message: "state 无效或已过期" } }
+        "502":
+          description: 与第三方通信失败
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                value: { error: { code: 502, message: "与提供商通信失败: ..." } }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/userinfo/:
+    get:
+      tags: [User]
+      operationId: getUserInfo
+      summary: 解析已登录用户身份
+      description: |
+        接入方核心契约。携带 Bearer access token，返回**仅身份**字段（不含业务数据）。
+        受 `IsAuthenticatedAndTrusted` 保护：未受信任设备（被用户取消信任）会 401 强制重登。
+        服务端吊销检查：若 token 的 `jti` 已在登出黑名单中，返回 401（离线验签的接入方不受影响）。
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: 用户身份
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserInfo" }
+        "401":
+          description: 未认证 / 设备未受信任 / 令牌已吊销
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                untrusted:
+                  value: { error: { code: 401, message: "该设备未受信任，请重新登录" } }
+                revoked:
+                  value: { error: { code: 401, message: "令牌已失效，请重新登录" } }
+
+  /api/v1/token/refresh/:
+    post:
+      tags: [Token]
+      operationId: refreshToken
+      summary: 用 refresh 令牌轮换 access
+      description: |
+        接入方 access 过期后用 refresh 续期。受设备信任闸门保护：
+        未受信任设备的 refresh 被拒绝（401），强制重新 OAuth。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "200":
+          description: 新令牌对
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RefreshResponse" }
+        "400":
+          description: refresh 非法/过期（DRF 校验错误）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: 设备未受信任
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                value: { error: { code: 401, message: "该设备未受信任，请重新登录" } }
+
+  /api/v1/logout/:
+    post:
+      tags: [Token]
+      operationId: logout
+      summary: 真实登出（吊销 jti）
+      description: |
+        需 Bearer access token。吊销该 access 的 `jti`；若 body 提供 `refresh_token` 则连同会话一并吊销。
+        黑名单 TTL = 令牌剩余寿命，Redis 不可用时降级开放（仍返回 200，吊销尽力而为）。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LogoutRequest" }
+      responses:
+        "200":
+          description: 已登出
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LogoutResponse" }
+        "401":
+          description: 未认证
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/login/:
+    post:
+      tags: [OAuth]
+      operationId: passwordLogin
+      summary: 密码登录（签发 JWT）
+      description: 用户名/邮箱 + 密码登录；连续失败达阈值后要求验证码（hCaptcha）。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PasswordLoginRequest" }
+      responses:
+        "200":
+          description: 令牌包
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenSet" }
+        "400":
+          description: 凭据错误 / 需要验证码
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                value: { error: { code: 400, message: "用户名或密码错误", captcha_required: true } }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/profile/:
+    get:
+      tags: [Account]
+      operationId: getProfile
+      summary: 获取自身资料
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: 资料
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserInfo" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Account]
+      operationId: patchProfile
+      summary: 更新可编辑身份字段
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nickname: { type: string }
+                bio: { type: string }
+                avatar: { type: string }
+      responses:
+        "200":
+          description: 更新后资料
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserInfo" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Account]
+      operationId: deleteAccount
+      summary: 注销账号
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204":
+          description: 已注销
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/devices/:
+    get:
+      tags: [Account]
+      operationId: listDevices
+      summary: 列出受信任设备
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: 设备列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Device" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/devices/{id}/:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      tags: [Account]
+      operationId: getDevice
+      summary: 设备详情
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: 设备
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Device" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Account]
+      operationId: patchDevice
+      summary: 重命名 / 取消信任
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                trusted: { type: boolean, description: "设 false = 取消信任，会吊销该设备会话并强制重登" }
+      responses:
+        "200":
+          description: 更新后设备
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Device" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Account]
+      operationId: deleteDevice
+      summary: 撤销设备（吊销其所有会话）
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204":
+          description: 已撤销
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/sessions/:
+    get:
+      tags: [Account]
+      operationId: listSessions
+      summary: 列出活跃会话
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: 会话列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Session" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Account]
+      operationId: revokeOtherSessions
+      summary: 吊销其他会话（保留当前）
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204":
+          description: 已吊销其他会话
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/sessions/{id}/:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    delete:
+      tags: [Account]
+      operationId: revokeSession
+      summary: 吊销指定会话
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204":
+          description: 已吊销
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/oauth/{provider}/bind/:
+    post:
+      tags: [Account]
+      operationId: bindOAuth
+      summary: 关联第三方账号到当前用户
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [github, qq, wechat] }
+      responses:
+        "200":
+          description: 已关联 / 授权 URL
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Error"
+                  - type: object
+                    properties:
+                      authorize_url: { type: string }
+        "409":
+          description: 该第三方账号已绑其他用户
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/oauth/{provider}/unbind/:
+    delete:
+      tags: [Account]
+      operationId: unbindOAuth
+      summary: 解除第三方账号关联
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [github, qq, wechat] }
+      responses:
+        "204":
+          description: 已解除
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/oauth/accounts/:
+    get:
+      tags: [Account]
+      operationId: listOAuthAccounts
+      summary: 列出已关联第三方账号
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: 账号列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        provider: { type: string }
+                        provider_user_id: { type: string }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/password/status/:
+    get:
+      tags: [Account]
+      operationId: passwordStatus
+      summary: 是否已设置密码
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: 状态
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  has_password: { type: boolean }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/password/change/:
+    post:
+      tags: [Account]
+      operationId: passwordChange
+      summary: 修改密码
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                current_password: { type: string }
+                new_password: { type: string }
+      responses:
+        "200":
+          description: 已修改
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserInfo" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: RS256 签发的 JWT，接入方用 JWKS 公钥验签；声明含 user_id / passport_user_id / exp / iat / jti / iss。
+  responses:
+    Unauthorized:
+      description: 未认证 / 设备未受信任
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            value: { error: { code: 401, message: "该设备未受信任，请重新登录" } }
+    RateLimited:
+      description: 请求过于频繁
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            value: { error: { code: 429, message: "请求过于频繁，请稍后再试" } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: integer, example: 401 }
+            message: { type: string, example: "该设备未受信任，请重新登录" }
+    TokenSet:
+      type: object
+      required: [access, refresh, passport_user_id, token_type, jti]
+      properties:
+        access: { type: string, description: RS256 access JWT（30min） }
+        refresh: { type: string, description: RS256 refresh JWT（14d） }
+        passport_user_id: { type: string, description: 统一身份主键 }
+        token_type: { type: string, example: Bearer }
+        jti: { type: string, description: 双令牌共享的会话 ID，吊销其一即吊销整段会话 }
+    RefreshRequest:
+      type: object
+      properties:
+        refresh: { type: string, description: refresh JWT（也接受 refresh_token 字段名） }
+        refresh_token: { type: string }
+    RefreshResponse:
+      type: object
+      required: [access, refresh]
+      properties:
+        access: { type: string }
+        refresh: { type: string }
+    LogoutRequest:
+      type: object
+      properties:
+        refresh_token: { type: string, description: "提供则连同吊销整个 refresh 会话" }
+    LogoutResponse:
+      type: object
+      required: [revoked, detail]
+      properties:
+        revoked: { type: boolean }
+        detail: { type: string, example: 已登出 }
+    PasswordLoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier: { type: string, description: 用户名或邮箱 }
+        password: { type: string }
+        captcha: { type: string, description: 触发验证码后必填 }
+    UserInfo:
+      type: object
+      required: [passport_user_id, nickname, is_active]
+      properties:
+        passport_user_id: { type: string, description: 统一身份主键，接入方据此建/关联本地用户 }
+        email: { type: string }
+        username: { type: string }
+        nickname: { type: string }
+        avatar: { type: string, nullable: true }
+        bio: { type: string }
+        providers:
+          type: array
+          items: { type: string }
+          description: 该用户已关联的第三方 provider 列表
+        is_active: { type: boolean }
+    Configuration:
+      type: object
+      properties:
+        issuer: { type: string, example: lotus-passport }
+        jwks_uri: { type: string }
+        userinfo_endpoint: { type: string }
+        token_refresh_endpoint: { type: string }
+        authorization_endpoint_template: { type: string }
+        id_token_signing_alg_values_supported:
+          type: array
+          items: { type: string }
+        claims_supported:
+          type: array
+          items: { type: string }
+        providers_supported:
+          type: array
+          items: { type: string }
+    JWKSet:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              kty: { type: string, example: RSA }
+              crv: { type: string, nullable: true }
+              alg: { type: string, example: RS256 }
+              use: { type: string, example: sig }
+              kid: { type: string, description: 密钥 ID，按此匹配令牌 header 的 kid }
+              n: { type: string, description:  modulus (base64url) }
+              e: { type: string, description:  exponent (base64url) }
+    Device:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        device_type: { type: string }
+        os: { type: string }
+        browser: { type: string }
+        trusted: { type: boolean, description: 是否受信任（false 时该设备 refresh 被拒） }
+        first_trusted_at: { type: string, format: date-time, nullable: true }
+        last_seen_at: { type: string, format: date-time, nullable: true }
+    Session:
+      type: object
+      properties:
+        id: { type: integer }
+        device: { $ref: "#/components/schemas/Device" }
+        ip: { type: string }
+        user_agent: { type: string }
+        created_at: { type: string, format: date-time }
+        last_active_at: { type: string, format: date-time }
+        is_current: { type: boolean }

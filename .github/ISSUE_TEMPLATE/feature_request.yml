@@ -1,0 +1,31 @@
+name: Feature request
+description: 提出功能或改进建议
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 当前哪里不方便 / 有什么风险？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案
+    validations:
+      required: false
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影响面
+      description: 涉及 API 契约、数据模型、权限或部署变更时请说明
+    validations:
+      required: false

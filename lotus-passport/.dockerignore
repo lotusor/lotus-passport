@@ -1,0 +1,21 @@
+# Secrets — never baked into the image (compose/volume/env inject them)
+.env
+.env.*
+*.pem
+keys/
+
+# Local DB / Python caches
+db.sqlite3
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Dev / CI-only artifacts (not needed at runtime)
+.venv/
+staticfiles/
+tests/
+*.md
+.github/
+
+# NOTE: `docker/` is intentionally NOT ignored — the Dockerfile copies
+# docker/entrypoint.sh into the image.

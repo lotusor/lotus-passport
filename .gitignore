@@ -1,0 +1,51 @@
+# --- Monorepo root ignores (local session / tooling scratch) ---
+.work*/
+.venv/
+overview.md
+
+# --- Session scratch (not project deliverables) ---
+.tmp/
+.trash/
+integration-report.md
+rs256-jwks-overview.md
+verify-e2e.py
+verify-e2e.mjs
+page_out.html
+_verify_*.py
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.swp
+
+# --- Secrets / local DB / Python caches (never commit) ---
+keys/
+*.pem
+db.sqlite3
+__pycache__/
+*.pyc
+.pytest_cache/
+staticfiles/
+
+# --- Debug scratch / generated (local session + local runs, never commit) ---
+_*.txt
+_*.tmp
+*.log
+/media/
+/lotus-passport/media/
+.next/
+node_modules/
+
+# --- Local real-env files (examples with .example are safe & committed) ---
+.env
+.env.production
+.env.docker
+.env.local
+.env*.local
+
+# --- Build / coverage caches ---
+*.tsbuildinfo
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/

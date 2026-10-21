@@ -1,0 +1,14 @@
+# Gitleaks configuration for the public repository.
+# The default rules stay enabled; only documented public placeholders are allowed.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public example files and CI-only placeholder values"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)\.env\..*\.example$''',
+]
+regexes = [
+  '''ci-[0-9a-f]{64}''',
+]
