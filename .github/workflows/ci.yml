@@ -235,7 +235,7 @@ jobs:
       # stage silently generated an RSA key" or "npm ci dropped devDeps so
       # next build can't find tailwind".
       - name: Build backend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./lotus-passport
           push: false
@@ -244,7 +244,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build frontend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./lotus-passport-security
           push: false
