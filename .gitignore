@@ -43,6 +43,13 @@ node_modules/
 .env.local
 .env*.local
 
+# --- Internal hand-over / ops docs (private repos only) ---
+/HANDOVER*
+/HANDOFF*
+/PRE_LAUNCH*
+/prototype design*/
+*.bundle
+
 # --- Build / coverage caches ---
 *.tsbuildinfo
 .coverage

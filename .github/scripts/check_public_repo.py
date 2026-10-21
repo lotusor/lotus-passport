@@ -39,6 +39,7 @@ SKIP_WARNINGS = {
     Path("SECURITY.md"),
     Path("CONTRIBUTING.md"),
     Path(".github/pull_request_template.md"),
+    Path(".gitignore"),
 }
 MAX_BYTES = 1_500_000
 

@@ -1,6 +1,6 @@
 # Contributing
 
-感谢参与 Lotus Passport。这个仓库是**公开仓库**，提交前请先确认内容边界。
+感谢参与 Lotus Passport。这个仓库是**公开仓库**，会保持 public，只接受可开源内容；提交前请先确认内容边界。
 
 ## 公开 / 私有边界
 
@@ -19,6 +19,10 @@
 - 真实用户数据、数据库转储、备份文件
 - 构建缓存、截图、临时脚本、编辑器/IDE 文件
 - 面向 Agent 的提示词、交付说明、会话日志或“用户决策”式工作记录
+
+内部交接、生产部署配置、设计原型与审计报告统一放在私有仓库：本仓库对应
+`lotusor/E-psssport`；EACM 体系运维文档在 `lotusor/E-rank`。公开仓库不通过改为
+private 来规避清理，发现敏感内容必须轮换凭据并重建历史。
 
 ## 提交前检查
 
@@ -47,7 +51,7 @@ cd .. && python .github/scripts/check_public_repo.py --strict
 如果你已经提交了敏感内容：
 
 1. **先轮换凭据**，不要先删文件；
-2. 立即把仓库设为私有或限制访问；
+2. 如需阻断扩散可临时把仓库设为私有；**本仓库默认保持 public**，因此必须继续执行历史重建，不能以私有化替代清理；
 3. 评估是否用新仓库重建历史，或用 `git filter-repo` 清理；
 4. 清理后 force-push，并联系 GitHub Support 清理旧 commit 缓存；
 5. 检查 deploy keys、webhooks、Actions secrets 与服务器登录日志；
