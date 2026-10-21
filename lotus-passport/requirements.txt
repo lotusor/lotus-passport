@@ -1,5 +1,5 @@
 # ---- Runtime ----
-Django>=5.1,<5.3
+Django>=6.1.2,<6.2
 dj-database-url>=2.1
 djangorestframework>=3.15
 djangorestframework-simplejwt>=5.3
