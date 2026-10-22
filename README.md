@@ -18,7 +18,7 @@ Lotus Passport 是一个独立的统一身份认证中心：把 GitHub / QQ / �
 
 ```text
 ┌──────────────┐      OAuth       ┌─────────────────────┐
-│ GitHub/QQ/微信 │ ◄──────────────► │  Lotus Passport API │
+│GitHub/QQ/微信 │◄────────────►   │  Lotus Passport API │
 └──────────────┘                  │  Django + DRF       │
                                   │  RS256 + JWKS       │
 ┌──────────────┐    same-origin   │  Redis / PostgreSQL │
@@ -26,8 +26,8 @@ Lotus Passport 是一个独立的统一身份认证中心：把 GitHub / QQ / �
 │ Next.js      │                            │ JWT (RS256)
 └──────────────┘                            ▼
                                   ┌─────────────────────┐
-                                  │  接入方（如 E-algo）  │
-                                  │  SDK 离线验签         │
+                                  │  接入方（如 E-algo） │
+                                  │  SDK 离线验签        │
                                   └─────────────────────┘
 ```
 
