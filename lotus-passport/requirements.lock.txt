@@ -11,24 +11,24 @@
 #   pip install --dry-run --ignore-installed --report r.json -r requirements.txt
 #   (or: create a clean venv, `pip install -r requirements.txt`, `pip freeze`)
 # ---------------------------------------------------------------------------
-asgiref==3.12.1
-Authlib==1.7.2
-certifi==2026.10.19
+asgiref==3.13.0
+Authlib==1.9.1
+certifi==2026.10.23
 cffi==2.1.1
-charset-normalizer==3.4.9
-cryptography==50.0.0
+charset-normalizer==3.5.2
+cryptography==50.0.2
 dj-database-url==3.1.2
 Django==5.2.17
 django-cors-headers==4.9.0
-djangorestframework==3.17.2
+djangorestframework==3.18.3
 djangorestframework_simplejwt==5.5.1
-gunicorn==26.0.0
-idna==3.18
-joserfc==1.7.4
+gunicorn==26.2.0
+idna==3.20
+joserfc==1.7.7
 packaging==26.3
-psycopg==3.3.4
-psycopg-binary==3.3.4
-pycparser==3.0
+psycopg==3.3.6
+psycopg-binary==3.3.6
+pycparser==3.12
 pyasn1==0.6.4
 pyasn1_modules==0.4.2
 PyJWT==2.15.1
@@ -39,6 +39,6 @@ qrcode==8.2
 redis==8.1.0
 requests==2.34.2
 sqlparse==0.6.0
-tzdata==2026.3
+tzdata==2026.5
 urllib3==2.8.0
 whitenoise==6.12.0
