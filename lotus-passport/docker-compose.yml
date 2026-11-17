@@ -25,7 +25,8 @@ services:
       # 所以这两个名字外部拿不到（写 "0.0.0.0" 绑定 + 留 localhost 白名单时，
       # 任何直连者都能用 Host: localhost 冒充内网请求）。
       DEBUG: "False"
-      ALLOWED_HOSTS: passport.eacm.cn,localhost,127.0.0.1
+      # account.eacm.cn：新前端同源代理转发时携带的 Host，必须放行（2026-11-18 替换上线）。
+      ALLOWED_HOSTS: passport.eacm.cn,account.eacm.cn,localhost,127.0.0.1
       PASSPORT_OAUTH_REDIRECT_BASE: https://passport.eacm.cn/api/v1/oauth
       FRONTEND_SUCCESS_REDIRECT: https://account.eacm.cn/
     depends_on: []
@@ -45,14 +46,14 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # 前端 Next.js SPA — 部署在 account.eacm.cn
+  # 前端 Next.js SPA — 部署在 account.eacm.cn（2026-11-18 起为 lotus-passport-web 重建版）。
   # 同 host 网络（nginx 容器也用 host 网络），反代通过 127.0.0.1:3000。
-  # Next.js 内部的 /api/v1/[...path]/route.ts 会再代到 PASSPORT_API_ORIGIN，
+  # Next.js 的 next.config.mjs rewrites 把 /api、/media、/.well-known 代到 PASSPORT_API_ORIGIN，
   # 形成"浏览器 → nginx:443 → next.js:3000 → passport:8000"的两跳链路，
-  # 全程不跨域（同 host 网络 + Next.js 内部 fetch）。
+  # 全程不跨域（同 host 网络 + Next.js 内部转发）。
   frontend:
     build:
-      context: ../lotus-passport-security
+      context: ../lotus-passport-web
       # NEXT_PUBLIC_* 在构建期内联进客户端 bundle，运行时给没用。
       # 值来自本目录的 .env（docker compose 的变量插值文件，不进 git）。
       # 缺省为空 → 验证码组件会显示「未配置」，故部署前务必确认该值已配。
