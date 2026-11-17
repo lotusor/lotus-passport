@@ -11,7 +11,7 @@ declare global {
   }
 }
 
-const SITEKEY = process.env.NEXT_PUBLIC_HCAPTCHA_SITEKEY ?? '';
+const SITEKEY = process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY ?? '';
 const SCRIPT_SRC = 'https://js.hcaptcha.com/1/api.js?render=explicit';
 
 interface HCaptchaProps {
@@ -61,7 +61,7 @@ export function HCaptcha({ onToken }: HCaptchaProps) {
   if (!SITEKEY) {
     return (
       <p className="notice notice--red">
-        已触发人机验证，但前端未配置 hCaptcha 站点键（NEXT_PUBLIC_HCAPTCHA_SITEKEY），暂时无法完成验证。
+        已触发人机验证，但前端未配置 hCaptcha 站点键（NEXT_PUBLIC_HCAPTCHA_SITE_KEY），暂时无法完成验证。
       </p>
     );
   }
